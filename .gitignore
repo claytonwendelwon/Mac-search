@@ -1,0 +1,14 @@
+# Swift Package Manager build output
+.build/
+.swiftpm/
+
+# Assembled app bundle (produced by scripts/run.sh)
+*.app/
+
+# macOS
+.DS_Store
+
+# Xcode (if the project is later opened/generated there)
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
