@@ -9,6 +9,10 @@ final class HotKey {
     private var eventHandler: EventHandlerRef?
     private let handler: () -> Void
 
+    /// `noErr` if registration succeeded; otherwise the failing OSStatus.
+    private(set) var registrationStatus: OSStatus = noErr
+    var isRegistered: Bool { registrationStatus == noErr && hotKeyRef != nil }
+
     // A unique signature/id so the dispatcher can route events back to us.
     private static let signature: OSType = {
         let chars = Array("BCON".utf8)
@@ -55,6 +59,10 @@ final class HotKey {
     }
 
     private func register(keyCode: UInt32, modifiers: UInt32) {
-        RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        registrationStatus = RegisterEventHotKey(keyCode, modifiers, hotKeyID,
+                                                 GetApplicationEventTarget(), 0, &hotKeyRef)
+        if registrationStatus != noErr {
+            print("[Beacon] RegisterEventHotKey failed with status \(registrationStatus)")
+        }
     }
 }

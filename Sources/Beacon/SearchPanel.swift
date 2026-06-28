@@ -26,7 +26,9 @@ final class SearchPanel: NSPanel {
         hasShadow = true
 
         // Stay available across spaces and over full-screen apps.
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .moveToActiveSpace]
+        // NOTE: .canJoinAllSpaces and .moveToActiveSpace are mutually exclusive;
+        // setting both raises an exception. Use canJoinAllSpaces only.
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         // Don't keep the app alive / show in the window menu.
         isReleasedWhenClosed = false
         hidesOnDeactivate = false

@@ -12,23 +12,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let panelHeight: CGFloat = 480
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Log.write("Launching Beacon...")
         setupStatusItem()
         setupPanel()
         setupHotKey()
-        // Reveal on first launch so it's obvious the app started.
         showPanel()
+        Log.write("Ready. Menu-bar icon active; panel shown.")
     }
 
     // MARK: - Menu bar
 
-    private func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = item.button {
-            button.image = NSImage(systemSymbolName: "magnifyingglass",
-                                   accessibilityDescription: "Beacon Search")
-            button.image?.isTemplate = true
-        }
-
+    private lazy var statusMenu: NSMenu = {
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Beacon  (⌥Space)",
                      action: #selector(showPanelFromMenu),
@@ -38,8 +32,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               action: #selector(NSApplication.terminate(_:)),
                               keyEquivalent: "q")
         menu.addItem(quit)
-        item.menu = menu
+        return menu
+    }()
+
+    private func setupStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = item.button {
+            button.image = NSImage(systemSymbolName: "magnifyingglass",
+                                   accessibilityDescription: "Beacon Search")
+            button.image?.isTemplate = true
+            button.toolTip = "Beacon - click to search (⌥Space)"
+            // Left-click opens the search bar; right-click shows the menu.
+            button.target = self
+            button.action = #selector(statusItemClicked)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
         statusItem = item
+    }
+
+    @objc private func statusItemClicked() {
+        let isRightClick = NSApp.currentEvent?.type == .rightMouseUp
+            || NSApp.currentEvent?.modifierFlags.contains(.control) == true
+        if isRightClick {
+            guard let statusItem else { return }
+            statusItem.menu = statusMenu
+            statusItem.button?.performClick(nil) // open the menu
+            statusItem.menu = nil                // detach so left-click works next time
+        } else {
+            togglePanel()
+        }
     }
 
     @objc private func showPanelFromMenu() {
@@ -62,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func togglePanel() {
+        Log.write("togglePanel (visible=\(panel?.isVisible ?? false))")
         if let panel, panel.isVisible {
             hidePanel()
         } else {
@@ -87,6 +109,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Option + Space (avoids clashing with Spotlight's Cmd+Space).
         hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey)) { [weak self] in
             self?.togglePanel()
+        }
+        if hotKey?.isRegistered == true {
+            Log.write("Global hotkey Option+Space registered OK.")
+        } else {
+            Log.write("Global hotkey NOT registered (status \(hotKey?.registrationStatus ?? -1)). Use the menu-bar icon.")
         }
     }
 }
