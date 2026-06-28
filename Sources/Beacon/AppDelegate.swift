@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private lazy var statusMenu: NSMenu = {
         let menu = NSMenu()
-        menu.addItem(withTitle: "Open Beacon  (⌥Space)",
+        menu.addItem(withTitle: "Open Beacon  (⌥S)",
                      action: #selector(showPanelFromMenu),
                      keyEquivalent: "")
         menu.addItem(.separator())
@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = NSImage(systemSymbolName: "magnifyingglass",
                                    accessibilityDescription: "Beacon Search")
             button.image?.isTemplate = true
-            button.toolTip = "Beacon - click to search (⌥Space)"
+            button.toolTip = "Beacon - click to search (⌥S)"
             // Left-click opens the search bar; right-click shows the menu.
             button.target = self
             button.action = #selector(statusItemClicked)
@@ -94,9 +94,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showPanel() {
         guard let panel else { return }
         panel.positionOnActiveScreen()
+        // Pull the app forward (even from another app / full-screen space) and
+        // make the panel key so the search field can show a blinking caret.
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        engine.focusRequestToken &+= 1 // nudge the text field to grab focus
+        panel.orderFrontRegardless()
+        panel.makeKey()
+        // Nudge the text field to become first responder (caret on). Do it now
+        // and again on the next runloop tick, since activation can be async.
+        engine.focusRequestToken &+= 1
+        DispatchQueue.main.async { [weak self] in
+            self?.panel?.makeKey()
+            self?.engine.focusRequestToken &+= 1
+        }
     }
 
     private func hidePanel() {
@@ -106,12 +116,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Hotkey
 
     private func setupHotKey() {
-        // Option + Space (avoids clashing with Spotlight's Cmd+Space).
-        hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey)) { [weak self] in
+        // Option + S. Avoids Cmd+S (Save) and Cmd+Space (Spotlight); as a
+        // registered global hotkey it intercepts the keystroke system-wide
+        // instead of typing into the focused app.
+        hotKey = HotKey(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(optionKey)) { [weak self] in
+            Log.write("Hotkey fired (Option+S).")
             self?.togglePanel()
         }
         if hotKey?.isRegistered == true {
-            Log.write("Global hotkey Option+Space registered OK.")
+            Log.write("Global hotkey Option+S registered OK.")
         } else {
             Log.write("Global hotkey NOT registered (status \(hotKey?.registrationStatus ?? -1)). Use the menu-bar icon.")
         }

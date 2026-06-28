@@ -42,8 +42,8 @@ cat <<'EOF'
 
 ==> Beacon is running.
     - Look for the magnifying-glass icon in your menu bar.
-    - Press  Option + Space  anywhere to open the search bar.
-    - Press  Esc  to dismiss it.
+    - Press  Option + S  anywhere to open the search bar.
+    - Or click the menu-bar icon. Press  Esc  to dismiss it.
 
     Tip: For complete coverage of every folder on your Mac, grant
     Beacon Full Disk Access in:

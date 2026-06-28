@@ -98,7 +98,10 @@ final class SearchEngine: ObservableObject {
         let namePredicates: [NSPredicate] = tokens.map {
             NSPredicate(format: "kMDItemDisplayName CONTAINS[cd] %@", $0)
         }
-        let namePredicate = NSCompoundPredicate(andPredicateWithSubpredicates: namePredicates)
+        // IMPORTANT: NSMetadataQuery rejects a compound predicate that wraps a
+        // single subpredicate, so only build a compound when there are 2+.
+        let namePredicate = Self.combine(namePredicates, type: .and)
+            ?? NSPredicate(value: true)
 
         let trees = selectedType.contentTypeTrees
         guard !trees.isEmpty else { return namePredicate }
@@ -106,8 +109,21 @@ final class SearchEngine: ObservableObject {
         let typePredicates = trees.map {
             NSPredicate(format: "kMDItemContentTypeTree == %@", $0)
         }
-        let typePredicate = NSCompoundPredicate(orPredicateWithSubpredicates: typePredicates)
+        guard let typePredicate = Self.combine(typePredicates, type: .or) else {
+            return namePredicate
+        }
         return NSCompoundPredicate(andPredicateWithSubpredicates: [namePredicate, typePredicate])
+    }
+
+    /// Combine predicates without ever producing a single-element compound
+    /// (which NSMetadataQuery treats as invalid and throws on).
+    private static func combine(_ predicates: [NSPredicate],
+                                type: NSCompoundPredicate.LogicalType) -> NSPredicate? {
+        switch predicates.count {
+        case 0: return nil
+        case 1: return predicates[0]
+        default: return NSCompoundPredicate(type: type, subpredicates: predicates)
+        }
     }
 
     // MARK: - Results

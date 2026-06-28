@@ -24,6 +24,8 @@ struct SearchField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
+        field.isEditable = true
+        field.isSelectable = true
         field.font = .systemFont(ofSize: 22, weight: .light)
         field.placeholderString = "Search your Mac…"
         field.lineBreakMode = .byTruncatingTail
@@ -42,8 +44,12 @@ struct SearchField: NSViewRepresentable {
         if context.coordinator.lastFocusToken != focusToken {
             context.coordinator.lastFocusToken = focusToken
             DispatchQueue.main.async {
-                field.window?.makeFirstResponder(field)
-                if let editor = field.currentEditor() {
+                guard let window = field.window else { return }
+                window.makeKey()
+                window.makeFirstResponder(field)
+                if let editor = field.currentEditor() as? NSTextView {
+                    // Visible, blinking insertion-point caret.
+                    editor.insertionPointColor = .controlAccentColor
                     editor.selectedRange = NSRange(location: field.stringValue.count, length: 0)
                 }
             }
