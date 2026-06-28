@@ -18,7 +18,18 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
 - Quick Look previews, reveal in Finder, copy path.
 - Native Swift/SwiftUI, zero third-party dependencies.
 
-## Requirements
+## Download (for users)
+
+1. Go to the [latest release](https://github.com/claytonwendelwon/Mac-search/releases/latest).
+2. Download `Beacon-<version>.dmg`.
+3. Open the `.dmg` and drag **Beacon** into your **Applications** folder.
+4. Launch Beacon from Applications. It lives in the menu bar (magnifying-glass icon).
+5. Press **Option + S** anywhere to search.
+
+The app is signed with a Developer ID and notarized by Apple, so it opens
+without security warnings.
+
+## Requirements (to build from source)
 
 - macOS 13 or newer.
 - Xcode command-line tools / Swift toolchain (`swift --version`).
@@ -39,8 +50,9 @@ To build a debug variant, set `CONFIG=debug bash scripts/run.sh`.
 
 ## Using Beacon
 
-- **Open / close:** `Option + Space` (toggles the search bar). Also available
-  from the menu-bar icon. (`Cmd + Space` is left alone for Spotlight.)
+- **Open / close:** `Option + S` (toggles the search bar). Also available by
+  clicking the menu-bar icon. (`Cmd + S` is left alone for Save, and
+  `Cmd + Space` for Spotlight.)
 - **Type** to search by name. Multiple words narrow the results (all words must
   appear in the name).
 - **Filter by type:** click a chip, or press `Tab` / `Shift + Tab` to cycle.

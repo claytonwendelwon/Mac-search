@@ -5,6 +5,9 @@
 # Assembled app bundle (produced by scripts/run.sh)
 *.app/
 
+# Release artifacts (produced by scripts/release.sh; uploaded to GitHub Releases)
+dist/
+
 # macOS
 .DS_Store
 

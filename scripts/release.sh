@@ -118,8 +118,10 @@ xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
 xcrun stapler staple "$DMG_PATH"
 
 # --- Verify Gatekeeper acceptance ------------------------------------------
-echo "==> Verifying Gatekeeper acceptance..."
-spctl -a -t open --context context:primary-signature -vv "$DMG_PATH" || true
+# Note: a .dmg is not itself code-signed; its notarization ticket is stapled,
+# so we validate the ticket here. (Gatekeeper assesses the app inside on open.)
+echo "==> Verifying notarization ticket on the DMG..."
+xcrun stapler validate "$DMG_PATH"
 rm -f "$ZIP_PATH"
 
 echo
