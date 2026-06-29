@@ -12,10 +12,22 @@ struct ResultRow: View {
                 .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(result.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    Text(result.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if result.matchKind == .content {
+                        Label("text match", systemImage: "text.magnifyingglass")
+                            .labelStyle(.titleAndIcon)
+                            .font(.system(size: 9, weight: .semibold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                    }
+                }
                 Text(prettyPath(result.directory))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)

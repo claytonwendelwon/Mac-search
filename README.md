@@ -12,7 +12,10 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
 ## Features
 
 - Global hotkey overlay: summon the search bar from any app.
-- Live results as you type, sorted by most recently used.
+- Live results as you type, with smart ranking (exact name matches and your
+  own files first; folders surface reliably).
+- Searches by name **and by text inside documents** (PDFs, text, Office/iWork,
+  etc.); content matches are flagged with a "text match" badge.
 - Type filters: All, Apps, Photos, Videos, Docs, PDFs, Audio, Folders.
 - Fully keyboard-driven (no mouse needed).
 - Quick Look previews, reveal in Finder, copy path.
