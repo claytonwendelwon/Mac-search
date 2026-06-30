@@ -6,13 +6,13 @@ import Foundation
 enum FileType: String, CaseIterable, Identifiable {
     case all
     case apps
-    case photos
-    case videos
+    case messages
     case docs
     case pdfs
     case audio
     case folders
-    case messages
+    case photos
+    case videos
 
     var id: String { rawValue }
 

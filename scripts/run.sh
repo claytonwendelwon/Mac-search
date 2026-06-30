@@ -28,8 +28,8 @@ cp "$ROOT/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
 
 echo "==> Ad-hoc signing..."
-codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null 2>&1 || \
-  codesign --force --sign - "$APP_BUNDLE"
+codesign --force --deep --entitlements "$ROOT/Resources/Beacon.entitlements" --sign - "$APP_BUNDLE" >/dev/null 2>&1 || \
+  codesign --force --entitlements "$ROOT/Resources/Beacon.entitlements" --sign - "$APP_BUNDLE"
 
 echo "==> Relaunching..."
 # Quit any running instance so the new build takes over.

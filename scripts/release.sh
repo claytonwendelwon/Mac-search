@@ -90,6 +90,7 @@ printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
 # --- Sign (Hardened Runtime + secure timestamp) -----------------------------
 echo "==> Code signing with Hardened Runtime..."
 codesign --force --options runtime --timestamp \
+  --entitlements "$ROOT/Resources/Beacon.entitlements" \
   --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
 codesign --verify --strict --verbose=2 "$APP_BUNDLE"
 
@@ -164,8 +165,16 @@ Now select the **Messages** filter and search by word, phrase, or contact.
 > Full Disk Access only unlocks Messages and a few protected folders.
 
 ## What's new in $VERSION
-- Search your text messages (iMessage & SMS) under the new Messages filter.
-- Beacon auto-registers for Full Disk Access so granting it is just a toggle.
+- Message results now show the **contact's name** instead of the phone number
+  (uses Contacts; you'll be asked once to allow it).
+- Message search now covers your **entire history**, not just recent messages.
+- Result snippets re-center on the matched word so it's always visible, and
+  matched words are **bolded** in titles and snippets across every filter.
+- Reordered filter chips: Messages moved up front; Photos/Videos to the end.
+
+Upgrading from an earlier version? Just replace the app in Applications -
+your Full Disk Access setting carries over (you'll only be asked once for
+Contacts, which is new in this version).
 EOF
   if gh release view "v$VERSION" >/dev/null 2>&1; then
     gh release upload "v$VERSION" "$DMG_PATH" --clobber

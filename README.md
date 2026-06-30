@@ -17,8 +17,11 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
 - Searches by name **and by text inside documents** (PDFs, text, Office/iWork,
   etc.); content matches are flagged with a "text match" badge.
 - **Search your text messages** (iMessage & SMS) under the Messages filter:
-  find by word, phrase, or contact; `return` opens the conversation in Messages
-  and `⌘C` copies the message text. (Requires Full Disk Access — see below.)
+  find by word, phrase, or contact across your whole history; results show the
+  **contact's name**, a snippet centered on the match, and when it was sent.
+  `return` opens the conversation in Messages and `⌘C` copies the text.
+  (Requires Full Disk Access; sender names use Contacts — see below.)
+- Matched words are **bolded** in result titles and message snippets.
 - Type filters: All, Apps, Photos, Videos, Docs, PDFs, Audio, Folders, Messages.
 - Fully keyboard-driven (no mouse needed).
 - Quick Look previews, reveal in Finder, copy path.
@@ -96,6 +99,10 @@ in the Full Disk Access list — you don't need the `+` button. To grant it:
 
 > If Beacon isn't listed yet, launch it once first, then reopen the list — or
 > drag `Beacon.app` from Applications into the list.
+
+The first time you search Messages, macOS also asks for **Contacts** access —
+allow it to see sender names instead of raw phone numbers. If you decline,
+message search still works; it just shows the number/email.
 
 ## How it works
 

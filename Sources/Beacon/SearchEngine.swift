@@ -30,6 +30,7 @@ struct SearchResult: Identifiable, Hashable {
     // Message-only fields.
     let messageBody: String?
     let messageHandle: String?  // phone/email used to open the conversation
+    let messageFromMe: Bool
 
     var url: URL { URL(fileURLWithPath: path) }
 
@@ -55,15 +56,16 @@ struct SearchResult: Identifiable, Hashable {
         self.id = id; self.source = .file; self.name = name; self.path = path
         self.kind = kind; self.size = size; self.modified = modified
         self.lastUsed = lastUsed; self.isFolder = isFolder; self.matchKind = matchKind
-        self.messageBody = nil; self.messageHandle = nil
+        self.messageBody = nil; self.messageHandle = nil; self.messageFromMe = false
     }
 
-    /// Message result.
-    init(message m: MessageRecord) {
+    /// Message result. `contactName` (when resolved from Contacts) is shown
+    /// instead of the raw phone/email.
+    init(message m: MessageRecord, contactName: String?) {
         self.id = "msg:\(m.rowid)"
         self.source = .message
-        let who = m.handle.isEmpty ? "Message" : m.handle
-        self.name = m.isFromMe ? "You \u{2192} \(who)" : who
+        let who = contactName ?? (m.handle.isEmpty ? "Unknown" : m.handle)
+        self.name = who
         self.path = ""
         self.kind = "Message"
         self.size = nil
@@ -73,6 +75,7 @@ struct SearchResult: Identifiable, Hashable {
         self.matchKind = .content
         self.messageBody = m.text
         self.messageHandle = m.handle
+        self.messageFromMe = m.isFromMe
     }
 }
 
@@ -103,6 +106,7 @@ final class SearchEngine: ObservableObject {
     private let homePath = NSHomeDirectory()
 
     private let messageStore = MessageStore()
+    private let contacts = ContactResolver()
     private let messageQueue = DispatchQueue(label: "com.beacon.messages", qos: .userInitiated)
     private var messageSearchID = 0
 
@@ -195,9 +199,12 @@ final class SearchEngine: ObservableObject {
         messageQueue.async { [weak self] in
             guard let self else { return }
             self.messageStore.ensureLoaded()
+            self.contacts.ensureLoaded()
             let needsAccess = self.messageStore.needsFullDiskAccess
             let hits = self.messageStore.search(tokens: tokens)
-            let mapped = hits.map { SearchResult(message: $0) }
+            let mapped = hits.map { rec in
+                SearchResult(message: rec, contactName: self.contacts.name(for: rec.handle))
+            }
 
             DispatchQueue.main.async {
                 guard searchID == self.messageSearchID else { return } // stale

@@ -4,6 +4,7 @@ import SwiftUI
 struct ResultRow: View {
     let result: SearchResult
     let isSelected: Bool
+    var tokens: [String] = []
 
     var body: some View {
         HStack(spacing: 10) {
@@ -13,8 +14,7 @@ struct ResultRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
-                    Text(result.name)
-                        .font(.system(size: 13, weight: .medium))
+                    Text(titleText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if result.source == .file && result.matchKind == .content {
@@ -28,8 +28,7 @@ struct ResultRow: View {
                             .fixedSize()
                     }
                 }
-                Text(subtitle)
-                    .font(.system(size: 11))
+                Text(subtitleText)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -53,12 +52,26 @@ struct ResultRow: View {
         .contentShape(Rectangle())
     }
 
-    /// For messages, the body snippet; for files, the containing folder.
-    private var subtitle: String {
+    /// Title with matched tokens bolded. The contact/file name is the title.
+    private var titleText: AttributedString {
+        Highlight.attributed(result.name, tokens: tokens,
+                             base: .system(size: 13, weight: .medium),
+                             strong: .system(size: 13, weight: .bold))
+    }
+
+    /// For messages: a window of the body centered on the match (with a "You:"
+    /// prefix for sent messages), matched words bolded. For files: the folder.
+    private var subtitleText: AttributedString {
         if result.source == .message {
-            return (result.messageBody ?? "").replacingOccurrences(of: "\n", with: " ")
+            let body = Highlight.snippet(result.messageBody ?? "", tokens: tokens)
+            let text = result.messageFromMe ? "You: \(body)" : body
+            return Highlight.attributed(text, tokens: tokens,
+                                        base: .system(size: 11),
+                                        strong: .system(size: 11, weight: .semibold))
         }
-        return prettyPath(result.directory)
+        var plain = AttributedString(prettyPath(result.directory))
+        plain.font = .system(size: 11)
+        return plain
     }
 
     private var trailingDetail: String? {

@@ -30,7 +30,9 @@ final class MessageStore {
     private var cache: [MessageRecord] = []
 
     private let dbPath = NSHomeDirectory() + "/Library/Messages/chat.db"
-    private let loadCap = 20_000
+    // Effectively "everything" - a safety ceiling so a pathological history
+    // can't exhaust memory. Real histories are far below this.
+    private let loadCap = 1_000_000
 
     var needsFullDiskAccess: Bool { state == .needsFullDiskAccess }
 

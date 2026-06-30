@@ -7,6 +7,13 @@ struct SearchView: View {
 
     @State private var selectedIndex: Int = 0
 
+    private var highlightTokens: [String] {
+        engine.queryText
+            .split(whereSeparator: { $0 == " " })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             searchField
@@ -147,7 +154,7 @@ struct SearchView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(engine.results.enumerated()), id: \.element.id) { index, result in
-                        ResultRow(result: result, isSelected: index == selectedIndex)
+                        ResultRow(result: result, isSelected: index == selectedIndex, tokens: highlightTokens)
                             .id(index)
                             .onTapGesture(count: 2) {
                                 selectedIndex = index
