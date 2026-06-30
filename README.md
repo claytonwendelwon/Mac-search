@@ -21,8 +21,12 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
   **contact's name**, a snippet centered on the match, and when it was sent.
   `return` opens the conversation in Messages and `⌘C` copies the text.
   (Requires Full Disk Access; sender names use Contacts — see below.)
-- Matched words are **bolded** in result titles and message snippets.
-- Type filters: All, Apps, Photos, Videos, Docs, PDFs, Audio, Folders, Messages.
+- **Search your Apple Notes** under the Notes filter: full-text search across
+  every note (title + body), with the matched word shown and bolded; `return`
+  opens Notes. (Uses the same Full Disk Access as Messages.)
+- Matched words are **bolded** in result titles and message/note snippets.
+- Type filters: All, Apps, Messages, Notes, Docs, PDFs, Audio, Folders,
+  Photos, Videos.
 - Fully keyboard-driven (no mouse needed).
 - Quick Look previews, reveal in Finder, copy path.
 - Native Swift/SwiftUI, zero third-party dependencies.
@@ -84,9 +88,10 @@ To build a debug variant, set `CONFIG=debug bash scripts/run.sh`.
 ## Full Disk Access
 
 Spotlight already indexes most user locations, so **file search works out of the
-box** with no permissions. Full Disk Access unlocks two extra things:
+box** with no permissions. Full Disk Access unlocks the extras:
 
-- **Message search** (reading `~/Library/Messages/chat.db`), and
+- **Message search** (reading `~/Library/Messages/chat.db`),
+- **Notes search** (reading the Apple Notes database), and
 - complete coverage of every folder, including some protected locations.
 
 Beacon touches the Messages database once at launch, so it automatically appears
@@ -127,6 +132,9 @@ Hotkey / menu bar  ->  floating NSPanel  ->  SwiftUI SearchView
   Messages SQLite database read-only, decodes message text (including the binary
   `attributedBody` blobs newer macOS uses), caches recent messages in memory,
   and filters them as you type.
+- `Sources/Beacon/NotesStore.swift` powers the Notes filter: it opens the Apple
+  Notes SQLite database read-only and decodes each note body (gzip-compressed
+  protobuf) to enable full-text search across your notes.
 
 ## Roadmap (distribution)
 

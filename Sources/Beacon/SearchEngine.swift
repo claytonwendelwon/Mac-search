@@ -8,10 +8,14 @@ enum MatchKind {
     case content
 }
 
-/// Whether a result is a file/folder from the index, or a text message.
+/// Whether a result is a file/folder from the index, a text message, a note,
+/// a clipboard entry, or a browser-history page.
 enum ResultSource {
     case file
     case message
+    case note
+    case clipboard
+    case history
 }
 
 /// One row in the results list, from either the Spotlight index or Messages.
@@ -32,6 +36,9 @@ struct SearchResult: Identifiable, Hashable {
     let messageHandle: String?  // phone/email used to open the conversation
     let messageFromMe: Bool
 
+    // Note-only field: AppleScript id used to navigate to the exact note.
+    let noteID: String?
+
     var url: URL { URL(fileURLWithPath: path) }
 
     var icon: NSImage {
@@ -40,6 +47,16 @@ struct SearchResult: Identifiable, Hashable {
             return NSWorkspace.shared.icon(forFile: path)
         case .message:
             return NSWorkspace.shared.icon(forFile: "/System/Applications/Messages.app")
+        case .note:
+            return NSWorkspace.shared.icon(forFile: "/System/Applications/Notes.app")
+        case .clipboard:
+            let symbol = NSImage(systemSymbolName: "doc.on.clipboard",
+                                 accessibilityDescription: "Clipboard")
+            return symbol ?? NSImage()
+        case .history:
+            let symbol = NSImage(systemSymbolName: "globe",
+                                 accessibilityDescription: "Web history")
+            return symbol ?? NSImage()
         }
     }
 
@@ -57,6 +74,7 @@ struct SearchResult: Identifiable, Hashable {
         self.kind = kind; self.size = size; self.modified = modified
         self.lastUsed = lastUsed; self.isFolder = isFolder; self.matchKind = matchKind
         self.messageBody = nil; self.messageHandle = nil; self.messageFromMe = false
+        self.noteID = nil
     }
 
     /// Message result. `contactName` (when resolved from Contacts) is shown
@@ -76,6 +94,65 @@ struct SearchResult: Identifiable, Hashable {
         self.messageBody = m.text
         self.messageHandle = m.handle
         self.messageFromMe = m.isFromMe
+        self.noteID = nil
+    }
+
+    /// Note result. The note title is the title; the body/snippet is the detail.
+    init(note n: NoteRecord) {
+        self.id = "note:\(n.pk)"
+        self.source = .note
+        self.name = n.title
+        self.path = ""
+        self.kind = "Note"
+        self.size = nil
+        self.modified = n.modified
+        self.lastUsed = n.modified
+        self.isFolder = false
+        self.matchKind = .content
+        self.messageBody = n.body.isEmpty ? n.snippet : n.body
+        self.messageHandle = nil
+        self.messageFromMe = false
+        self.noteID = n.appleScriptID
+    }
+
+    /// Clipboard-history result. `name` is a one-line preview; `messageBody`
+    /// holds the full copied text (used for the snippet and copy-back).
+    init(clip c: ClipEntry) {
+        self.id = "clip:\(c.id)"
+        self.source = .clipboard
+        let firstLine = c.text.split(whereSeparator: \.isNewline).first.map(String.init) ?? c.text
+        self.name = firstLine.trimmingCharacters(in: .whitespaces)
+        self.path = ""
+        self.kind = c.app ?? "Clipboard"
+        self.size = nil
+        self.modified = c.date
+        self.lastUsed = c.date
+        self.isFolder = false
+        self.matchKind = .content
+        self.messageBody = c.text
+        self.messageHandle = nil
+        self.messageFromMe = false
+        self.noteID = nil
+    }
+
+    /// Browser-history result. `name` is the page title (or URL), `path` holds
+    /// the URL (opened on Return), `kind` the browser, `messageBody` the URL for
+    /// the subtitle/copy.
+    init(history h: HistoryEntry) {
+        self.id = "hist:\(h.url)"
+        self.source = .history
+        self.name = h.title.isEmpty ? h.url : h.title
+        self.path = h.url
+        self.kind = h.browser
+        self.size = nil
+        self.modified = h.lastVisit
+        self.lastUsed = h.lastVisit
+        self.isFolder = false
+        self.matchKind = .content
+        self.messageBody = h.url
+        self.messageHandle = nil
+        self.messageFromMe = false
+        self.noteID = nil
     }
 }
 
@@ -89,7 +166,19 @@ final class SearchEngine: ObservableObject {
         didSet { scheduleSearch() }
     }
     @Published var selectedType: FileType = .all {
-        didSet { scheduleSearch() }
+        didSet {
+            guard oldValue != selectedType else { return }
+            // Switching filters always starts fresh: drop the previous list and
+            // any in-flight work so results from the old filter can never bleed
+            // into the new one.
+            fileResults = []
+            messageResults = []
+            noteResults = []
+            results = []
+            needsFullDiskAccess = false
+            historySafariDenied = false
+            scheduleSearch()
+        }
     }
     @Published private(set) var results: [SearchResult] = []
     @Published private(set) var isSearching: Bool = false
@@ -97,6 +186,11 @@ final class SearchEngine: ObservableObject {
     /// True when the Messages filter is active but we can't read the Messages
     /// database because Full Disk Access hasn't been granted.
     @Published private(set) var needsFullDiskAccess: Bool = false
+
+    /// True in the History filter when Safari's history is locked behind Full
+    /// Disk Access (other browsers may still have loaded). Drives a slim footer
+    /// rather than blocking the whole results list.
+    @Published private(set) var historySafariDenied: Bool = false
 
     /// Bumped by the app delegate to ask the search field to (re)take focus.
     @Published var focusRequestToken: Int = 0
@@ -106,14 +200,29 @@ final class SearchEngine: ObservableObject {
     private let homePath = NSHomeDirectory()
 
     private let messageStore = MessageStore()
+    private let notesStore = NotesStore()
+    private let historyStore = BrowserHistoryStore()
     private let contacts = ContactResolver()
     private let messageQueue = DispatchQueue(label: "com.beacon.messages", qos: .userInitiated)
-    private var messageSearchID = 0
+    /// Monotonic generation bumped on every scheduled search (query OR filter
+    /// change). Async work captures the value and only applies its results if
+    /// the token still matches - so stale/superseded searches are dropped.
+    private var searchToken = 0
 
     // Read generous caps so rarely-used items aren't dropped before ranking.
     private let nameReadCap = 500
     private let contentReadCap = 250
     private let displayCap = 120
+
+    // Per-source buckets, merged in `.all` mode by `publish()`.
+    private var fileResults: [SearchResult] = []
+    private var messageResults: [SearchResult] = []
+    private var noteResults: [SearchResult] = []
+
+    // Caps for the blended "All" view so each source stays reachable.
+    private let allFileCap = 60
+    private let allMessageCap = 6
+    private let allNoteCap = 6
 
     private var pendingSearch: DispatchWorkItem?
     private var currentTokens: [String] = []
@@ -147,31 +256,65 @@ final class SearchEngine: ObservableObject {
 
     private func scheduleSearch() {
         pendingSearch?.cancel()
+        // Bump the generation up front so any in-flight async search is
+        // invalidated immediately (the moment the query or filter changes).
+        searchToken &+= 1
+        let token = searchToken
         let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.isEmpty {
             nameQuery.stop()
             contentQuery.stop()
             currentTokens = []
-            results = []
-            isSearching = false
-            if selectedType.isMessages { checkMessageAccess() }
+            fileResults = []
+            messageResults = []
+            noteResults = []
+            // Clipboard & History show recent items when the query is empty.
+            if selectedType.isClipboard {
+                results = ClipboardStore.shared.recent().map { SearchResult(clip: $0) }
+                isSearching = false
+            } else if selectedType.isHistory {
+                results = []
+                isSearching = true
+                searchHistory(tokens: [], token: token)
+            } else {
+                results = []
+                isSearching = false
+            }
+            if selectedType.needsFullDiskAccess { checkDatabaseAccess() }
             return
         }
 
+        // Show the searching state right away so a just-cleared list doesn't
+        // flash "No results" during the debounce window.
+        isSearching = true
+
         let work = DispatchWorkItem { [weak self] in
-            self?.runSearch(term: trimmed)
+            self?.runSearch(term: trimmed, token: token)
         }
         pendingSearch = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
     }
 
-    private func runSearch(term: String) {
+    private func runSearch(term: String, token: Int) {
+        guard token == searchToken else { return } // superseded before we ran
         isSearching = true
         currentTokens = term.split(whereSeparator: { $0 == " " }).map { $0.lowercased() }
 
         if selectedType.isMessages {
-            searchMessages(tokens: currentTokens)
+            searchMessages(tokens: currentTokens, token: token)
+            return
+        }
+        if selectedType.isNotes {
+            searchNotes(tokens: currentTokens, token: token)
+            return
+        }
+        if selectedType.isClipboard {
+            searchClipboard(tokens: currentTokens)
+            return
+        }
+        if selectedType.isHistory {
+            searchHistory(tokens: currentTokens, token: token)
             return
         }
         needsFullDiskAccess = false
@@ -185,16 +328,61 @@ final class SearchEngine: ObservableObject {
         contentQuery.stop()
         contentQuery.predicate = contentPredicate(tokens: currentTokens, trees: trees)
         contentQuery.start()
+
+        // In "All" mode, also fold in (best-effort) messages and notes. Clear
+        // the prior buckets so stale rows don't linger until the gather lands.
+        messageResults = []
+        noteResults = []
+        if selectedType == .all {
+            gatherDatabasesForAll(tokens: currentTokens, token: token)
+        }
+    }
+
+    /// Background-load and search Messages + Notes for the blended All view.
+    /// Skips any source that lacks Full Disk Access (no prompt in All mode -
+    /// the dedicated chips own that flow).
+    private func gatherDatabasesForAll(tokens: [String], token: Int) {
+        messageQueue.async { [weak self] in
+            guard let self else { return }
+            self.messageStore.ensureLoaded()
+            self.contacts.ensureLoaded()
+            let msgs: [SearchResult] = self.messageStore.needsFullDiskAccess ? [] :
+                self.messageStore.search(tokens: tokens, limit: self.allMessageCap)
+                    .map { SearchResult(message: $0, contactName: self.contacts.name(for: $0.handle)) }
+
+            self.notesStore.ensureLoaded()
+            let notes: [SearchResult] = self.notesStore.needsFullDiskAccess ? [] :
+                self.notesStore.search(tokens: tokens, limit: self.allNoteCap).map { SearchResult(note: $0) }
+
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType == .all else { return }
+                self.messageResults = msgs
+                self.noteResults = notes
+                self.publish()
+            }
+        }
+    }
+
+    /// Combine the per-source buckets into the published `results`. In `.all`
+    /// mode the sources are grouped (files, then messages, then notes); other
+    /// file-backed modes show just their files.
+    private func publish() {
+        if selectedType == .all {
+            var combined: [SearchResult] = []
+            combined += fileResults.prefix(allFileCap)
+            combined += messageResults.prefix(allMessageCap)
+            combined += noteResults.prefix(allNoteCap)
+            results = Array(combined.prefix(displayCap))
+        } else {
+            results = fileResults
+        }
     }
 
     // MARK: - Messages
 
-    private func searchMessages(tokens: [String]) {
+    private func searchMessages(tokens: [String], token: Int) {
         nameQuery.stop()
         contentQuery.stop()
-
-        messageSearchID += 1
-        let searchID = messageSearchID
 
         messageQueue.async { [weak self] in
             guard let self else { return }
@@ -207,7 +395,8 @@ final class SearchEngine: ObservableObject {
             }
 
             DispatchQueue.main.async {
-                guard searchID == self.messageSearchID else { return } // stale
+                // Drop if superseded, or if the user has since left Messages.
+                guard token == self.searchToken, self.selectedType.isMessages else { return }
                 self.needsFullDiskAccess = needsAccess
                 self.results = mapped
                 self.isSearching = false
@@ -215,30 +404,101 @@ final class SearchEngine: ObservableObject {
         }
     }
 
-    /// Probe Messages access once at launch. Attempting to open the protected
-    /// database registers Beacon with macOS's privacy system, so the app shows
-    /// up (toggleable) in the Full Disk Access list without the user having to
-    /// add it manually with the "+" button.
-    func warmMessageAccess() {
-        checkMessageAccess()
+    // MARK: - Notes
+
+    private func searchNotes(tokens: [String], token: Int) {
+        nameQuery.stop()
+        contentQuery.stop()
+
+        messageQueue.async { [weak self] in
+            guard let self else { return }
+            self.notesStore.ensureLoaded()
+            let needsAccess = self.notesStore.needsFullDiskAccess
+            let mapped = self.notesStore.search(tokens: tokens).map { SearchResult(note: $0) }
+
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType.isNotes else { return }
+                self.needsFullDiskAccess = needsAccess
+                self.results = mapped
+                self.isSearching = false
+            }
+        }
     }
 
-    /// Load (or confirm) Messages access in the background so the Full Disk
-    /// Access prompt can appear even before the user types anything.
-    private func checkMessageAccess() {
+    // MARK: - Clipboard
+
+    private func searchClipboard(tokens: [String]) {
+        nameQuery.stop()
+        contentQuery.stop()
+        needsFullDiskAccess = false
+        results = ClipboardStore.shared.search(tokens: tokens).map { SearchResult(clip: $0) }
+        isSearching = false
+    }
+
+    // MARK: - Browser history
+
+    private func searchHistory(tokens: [String], token: Int) {
+        nameQuery.stop()
+        contentQuery.stop()
+
+        messageQueue.async { [weak self] in
+            guard let self else { return }
+            self.historyStore.ensureLoaded()
+            let safariDenied = self.historyStore.safariDenied
+            let mapped = self.historyStore.search(tokens: tokens).map { SearchResult(history: $0) }
+
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType.isHistory else { return }
+                // History never blocks the whole list; Safari denial surfaces
+                // as a slim footer instead.
+                self.needsFullDiskAccess = false
+                self.historySafariDenied = safariDenied
+                self.results = mapped
+                self.isSearching = false
+            }
+        }
+    }
+
+    /// Probe the protected databases once at launch. Attempting to open them
+    /// registers Beacon with macOS's privacy system, so the app shows up
+    /// (toggleable) in the Full Disk Access list without the user having to add
+    /// it manually with the "+" button.
+    func warmMessageAccess() {
         messageQueue.async { [weak self] in
             guard let self else { return }
             self.messageStore.ensureLoaded()
+            self.notesStore.ensureLoaded()
+            self.historyStore.ensureLoaded()
             let needsAccess = self.messageStore.needsFullDiskAccess
             DispatchQueue.main.async { self.needsFullDiskAccess = needsAccess }
         }
     }
 
-    /// Re-attempt loading the Messages DB (e.g. after the user grants access),
-    /// then re-run the current search if we're in Messages mode.
+    /// Confirm access for the active database-backed filter so the Full Disk
+    /// Access prompt can appear even before the user types anything.
+    private func checkDatabaseAccess() {
+        let wantsNotes = selectedType.isNotes
+        messageQueue.async { [weak self] in
+            guard let self else { return }
+            let needsAccess: Bool
+            if wantsNotes {
+                self.notesStore.ensureLoaded()
+                needsAccess = self.notesStore.needsFullDiskAccess
+            } else {
+                self.messageStore.ensureLoaded()
+                needsAccess = self.messageStore.needsFullDiskAccess
+            }
+            DispatchQueue.main.async { self.needsFullDiskAccess = needsAccess }
+        }
+    }
+
+    /// Re-attempt loading the protected DBs (e.g. after the user grants access),
+    /// then re-run the current search if we're in a database-backed mode.
     func retryMessageAccess() {
         messageStore.retry()
-        if selectedType.isMessages { scheduleSearch() }
+        notesStore.retry()
+        historyStore.retry()
+        if selectedType.needsFullDiskAccess { scheduleSearch() }
     }
 
     // MARK: - Predicates
@@ -283,16 +543,22 @@ final class SearchEngine: ObservableObject {
     // MARK: - Results
 
     @objc private func queryUpdated(_ note: Notification) {
+        // Ignore late file-index notifications while a database-backed filter
+        // (Messages/Notes/Clipboard/History) is active, so they can't overwrite
+        // that filter's results.
+        guard selectedType.usesFileIndex else { return }
+
         var merged: [String: SearchResult] = [:]
 
         // Name matches first so they win on dedupe against content matches.
         readResults(from: nameQuery, cap: nameReadCap, matchKind: .name, into: &merged)
         readResults(from: contentQuery, cap: contentReadCap, matchKind: .content, into: &merged)
 
-        results = Array(merged.values)
+        fileResults = Array(merged.values)
             .sorted(by: rank)
             .prefix(displayCap)
             .map { $0 }
+        publish()
 
         let bothDone = !nameQuery.isGathering && !contentQuery.isGathering
         if bothDone { isSearching = false }

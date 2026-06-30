@@ -7,6 +7,9 @@ enum FileType: String, CaseIterable, Identifiable {
     case all
     case apps
     case messages
+    case notes
+    case clipboard
+    case history
     case docs
     case pdfs
     case audio
@@ -19,6 +22,38 @@ enum FileType: String, CaseIterable, Identifiable {
     /// Messages are searched from the Messages database, not the file index.
     var isMessages: Bool { self == .messages }
 
+    /// Notes are searched from the Apple Notes database, not the file index.
+    var isNotes: Bool { self == .notes }
+
+    /// Clipboard history is searched from Beacon's own capture store.
+    var isClipboard: Bool { self == .clipboard }
+
+    /// Browser history is searched from Safari/Chromium history databases.
+    var isHistory: Bool { self == .history }
+
+    /// True for filters backed by the Spotlight file index (All and the file
+    /// type chips). Database/store-backed filters (Messages, Notes, Clipboard,
+    /// History) handle their own results and must ignore file-index updates.
+    var usesFileIndex: Bool {
+        !(isMessages || isNotes || isClipboard || isHistory)
+    }
+
+    /// Whether this source's content appears in the blended "All" view. Files,
+    /// apps, messages, and notes do; Clipboard and History are opt-in via their
+    /// own chips (and `all` itself isn't marked).
+    var includedInAll: Bool {
+        switch self {
+        case .all, .clipboard, .history: return false
+        default: return true
+        }
+    }
+
+    /// Sources that fully require Full Disk Access (we block with a prompt until
+    /// granted). History is intentionally excluded: Chromium browsers read
+    /// without it, so History shows what it can and surfaces Safari's lock as a
+    /// slim footer instead of blocking.
+    var needsFullDiskAccess: Bool { self == .messages || self == .notes }
+
     var title: String {
         switch self {
         case .all: return "All"
@@ -30,6 +65,9 @@ enum FileType: String, CaseIterable, Identifiable {
         case .audio: return "Audio"
         case .folders: return "Folders"
         case .messages: return "Messages"
+        case .notes: return "Notes"
+        case .clipboard: return "Clipboard"
+        case .history: return "History"
         }
     }
 
@@ -45,6 +83,9 @@ enum FileType: String, CaseIterable, Identifiable {
         case .audio: return "music.note"
         case .folders: return "folder"
         case .messages: return "message"
+        case .notes: return "note.text"
+        case .clipboard: return "doc.on.clipboard"
+        case .history: return "clock.arrow.circlepath"
         }
     }
 
@@ -80,6 +121,12 @@ enum FileType: String, CaseIterable, Identifiable {
             return ["public.folder"]
         case .messages:
             return [] // handled by MessageStore, not the file index
+        case .notes:
+            return [] // handled by NotesStore, not the file index
+        case .clipboard:
+            return [] // handled by ClipboardStore, not the file index
+        case .history:
+            return [] // handled by BrowserHistoryStore, not the file index
         }
     }
 }

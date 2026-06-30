@@ -161,20 +161,39 @@ Apple requires for any app reading Messages):
 Now select the **Messages** filter and search by word, phrase, or contact.
 **Return** opens the conversation in Messages; **Cmd + C** copies the text.
 
+The same **Full Disk Access** toggle also unlocks **Notes** and **Safari
+history**. (Chrome, Brave, Edge, and Arc history work without it.)
+
 > File search needs no permissions and works the moment you launch Beacon.
-> Full Disk Access only unlocks Messages and a few protected folders.
+> Full Disk Access only unlocks Messages, Notes, Safari history, and a few
+> protected folders.
+
+## Highlights
+- **Unified "All" search** - the All tab blends files & apps, messages, and
+  notes into one grouped, ranked list. Chips included in All show a small dot;
+  Clipboard and History are opt-in via their own chips.
+- **Clipboard history** - everything you copy is captured locally and
+  searchable under the **Clipboard** filter. **Return** copies it back, ready
+  to paste. Private/transient copies (password managers) are skipped.
+- **Browser history** - the **History** filter searches every page you've
+  visited across **Safari, Chrome, Brave, Edge, and Arc** (all profiles).
+  **Return** opens it; **Cmd + C** copies the link.
+- **Notes search** - search across all your Apple Notes; **Return** opens the
+  exact note.
 
 ## What's new in $VERSION
-- Message results now show the **contact's name** instead of the phone number
-  (uses Contacts; you'll be asked once to allow it).
-- Message search now covers your **entire history**, not just recent messages.
-- Result snippets re-center on the matched word so it's always visible, and
-  matched words are **bolded** in titles and snippets across every filter.
-- Reordered filter chips: Messages moved up front; Photos/Videos to the end.
+- **Rock-solid search consistency.** Reworked the search engine so results
+  always belong to the filter you're on. Fixed a race where a slow search
+  (e.g. Messages) could land on the wrong tab (e.g. Notes), items went missing,
+  or the list looked stale.
+- **Switching filters starts fresh.** Changing the filter now clears the list
+  instantly and re-runs cleanly - no leftover rows from the previous filter.
+- Smoother feedback while typing or switching: a brief spinner instead of a
+  flash of "No results."
 
 Upgrading from an earlier version? Just replace the app in Applications -
-your Full Disk Access setting carries over (you'll only be asked once for
-Contacts, which is new in this version).
+your Full Disk Access setting carries over. Clipboard history starts recording
+as soon as you launch this build.
 EOF
   if gh release view "v$VERSION" >/dev/null 2>&1; then
     gh release upload "v$VERSION" "$DMG_PATH" --clobber

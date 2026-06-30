@@ -13,7 +13,10 @@ cd "$ROOT"
 APP_NAME="Beacon"
 CONFIG="${CONFIG:-release}"
 BUILD_DIR="$ROOT/.build/$CONFIG"
-APP_BUNDLE="$ROOT/$APP_NAME.app"
+# Install into /Applications so there's only ever ONE Beacon on the system.
+# (Building a separate copy inside the project folder leads to launching a
+# stale app from Spotlight/Dock while the dev copy lives elsewhere.)
+APP_BUNDLE="/Applications/$APP_NAME.app"
 
 echo "==> Building $APP_NAME ($CONFIG)..."
 swift build -c "$CONFIG"

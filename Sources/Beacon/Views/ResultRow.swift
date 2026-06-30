@@ -59,12 +59,26 @@ struct ResultRow: View {
                              strong: .system(size: 13, weight: .bold))
     }
 
-    /// For messages: a window of the body centered on the match (with a "You:"
-    /// prefix for sent messages), matched words bolded. For files: the folder.
+    /// For messages/notes: a window of the body centered on the match (with a
+    /// "You:" prefix for sent messages), matched words bolded. For files: folder.
     private var subtitleText: AttributedString {
-        if result.source == .message {
+        if result.source == .clipboard {
             let body = Highlight.snippet(result.messageBody ?? "", tokens: tokens)
-            let text = result.messageFromMe ? "You: \(body)" : body
+            let app = (result.kind.isEmpty || result.kind == "Clipboard") ? "" : "\(result.kind) · "
+            return Highlight.attributed(app + body, tokens: tokens,
+                                        base: .system(size: 11),
+                                        strong: .system(size: 11, weight: .semibold))
+        }
+        if result.source == .history {
+            let url = Highlight.snippet(result.messageBody ?? "", tokens: tokens, maxLength: 90)
+            let prefix = result.kind.isEmpty ? "" : "\(result.kind) · "
+            return Highlight.attributed(prefix + url, tokens: tokens,
+                                        base: .system(size: 11),
+                                        strong: .system(size: 11, weight: .semibold))
+        }
+        if result.source == .message || result.source == .note {
+            let body = Highlight.snippet(result.messageBody ?? "", tokens: tokens)
+            let text = (result.source == .message && result.messageFromMe) ? "You: \(body)" : body
             return Highlight.attributed(text, tokens: tokens,
                                         base: .system(size: 11),
                                         strong: .system(size: 11, weight: .semibold))
@@ -75,7 +89,8 @@ struct ResultRow: View {
     }
 
     private var trailingDetail: String? {
-        if result.source == .message {
+        if result.source == .message || result.source == .note
+            || result.source == .clipboard || result.source == .history {
             guard let date = result.modified else { return nil }
             return Self.relativeDate.localizedString(for: date, relativeTo: Date())
         }

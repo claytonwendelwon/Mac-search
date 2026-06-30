@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Touch the Messages DB once so macOS registers Beacon in the Full Disk
         // Access list (users can then just flip the toggle, no manual add).
         engine.warmMessageAccess()
+        // Begin recording clipboard history (text only, private/transient
+        // copies excluded) so it's searchable under the Clipboard filter.
+        ClipboardStore.shared.start()
         Log.write("Ready. Menu-bar icon active; panel shown.")
     }
 
