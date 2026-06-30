@@ -8,11 +8,18 @@ enum MatchKind {
     case content
 }
 
-/// One row in the results list, derived from an `NSMetadataItem`.
+/// Whether a result is a file/folder from the index, or a text message.
+enum ResultSource {
+    case file
+    case message
+}
+
+/// One row in the results list, from either the Spotlight index or Messages.
 struct SearchResult: Identifiable, Hashable {
-    let id: String        // absolute path (unique + stable)
-    let name: String
-    let path: String
+    let id: String        // unique + stable (file path, or "msg:<rowid>")
+    let source: ResultSource
+    let name: String      // file name, or the message's sender/contact
+    let path: String      // file path; "" for messages
     let kind: String
     let size: Int64?
     let modified: Date?
@@ -20,10 +27,19 @@ struct SearchResult: Identifiable, Hashable {
     let isFolder: Bool
     let matchKind: MatchKind
 
+    // Message-only fields.
+    let messageBody: String?
+    let messageHandle: String?  // phone/email used to open the conversation
+
     var url: URL { URL(fileURLWithPath: path) }
 
     var icon: NSImage {
-        NSWorkspace.shared.icon(forFile: path)
+        switch source {
+        case .file:
+            return NSWorkspace.shared.icon(forFile: path)
+        case .message:
+            return NSWorkspace.shared.icon(forFile: "/System/Applications/Messages.app")
+        }
     }
 
     var directory: String {
@@ -32,6 +48,32 @@ struct SearchResult: Identifiable, Hashable {
 
     static func == (lhs: SearchResult, rhs: SearchResult) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    /// File result.
+    init(id: String, name: String, path: String, kind: String, size: Int64?,
+         modified: Date?, lastUsed: Date?, isFolder: Bool, matchKind: MatchKind) {
+        self.id = id; self.source = .file; self.name = name; self.path = path
+        self.kind = kind; self.size = size; self.modified = modified
+        self.lastUsed = lastUsed; self.isFolder = isFolder; self.matchKind = matchKind
+        self.messageBody = nil; self.messageHandle = nil
+    }
+
+    /// Message result.
+    init(message m: MessageRecord) {
+        self.id = "msg:\(m.rowid)"
+        self.source = .message
+        let who = m.handle.isEmpty ? "Message" : m.handle
+        self.name = m.isFromMe ? "You \u{2192} \(who)" : who
+        self.path = ""
+        self.kind = "Message"
+        self.size = nil
+        self.modified = m.date
+        self.lastUsed = m.date
+        self.isFolder = false
+        self.matchKind = .content
+        self.messageBody = m.text
+        self.messageHandle = m.handle
+    }
 }
 
 /// Wraps the Spotlight index via two `NSMetadataQuery` passes:
@@ -49,12 +91,20 @@ final class SearchEngine: ObservableObject {
     @Published private(set) var results: [SearchResult] = []
     @Published private(set) var isSearching: Bool = false
 
+    /// True when the Messages filter is active but we can't read the Messages
+    /// database because Full Disk Access hasn't been granted.
+    @Published private(set) var needsFullDiskAccess: Bool = false
+
     /// Bumped by the app delegate to ask the search field to (re)take focus.
     @Published var focusRequestToken: Int = 0
 
     private let nameQuery = NSMetadataQuery()
     private let contentQuery = NSMetadataQuery()
     private let homePath = NSHomeDirectory()
+
+    private let messageStore = MessageStore()
+    private let messageQueue = DispatchQueue(label: "com.beacon.messages", qos: .userInitiated)
+    private var messageSearchID = 0
 
     // Read generous caps so rarely-used items aren't dropped before ranking.
     private let nameReadCap = 500
@@ -101,6 +151,7 @@ final class SearchEngine: ObservableObject {
             currentTokens = []
             results = []
             isSearching = false
+            if selectedType.isMessages { checkMessageAccess() }
             return
         }
 
@@ -115,6 +166,12 @@ final class SearchEngine: ObservableObject {
         isSearching = true
         currentTokens = term.split(whereSeparator: { $0 == " " }).map { $0.lowercased() }
 
+        if selectedType.isMessages {
+            searchMessages(tokens: currentTokens)
+            return
+        }
+        needsFullDiskAccess = false
+
         let trees = selectedType.contentTypeTrees
 
         nameQuery.stop()
@@ -124,6 +181,57 @@ final class SearchEngine: ObservableObject {
         contentQuery.stop()
         contentQuery.predicate = contentPredicate(tokens: currentTokens, trees: trees)
         contentQuery.start()
+    }
+
+    // MARK: - Messages
+
+    private func searchMessages(tokens: [String]) {
+        nameQuery.stop()
+        contentQuery.stop()
+
+        messageSearchID += 1
+        let searchID = messageSearchID
+
+        messageQueue.async { [weak self] in
+            guard let self else { return }
+            self.messageStore.ensureLoaded()
+            let needsAccess = self.messageStore.needsFullDiskAccess
+            let hits = self.messageStore.search(tokens: tokens)
+            let mapped = hits.map { SearchResult(message: $0) }
+
+            DispatchQueue.main.async {
+                guard searchID == self.messageSearchID else { return } // stale
+                self.needsFullDiskAccess = needsAccess
+                self.results = mapped
+                self.isSearching = false
+            }
+        }
+    }
+
+    /// Probe Messages access once at launch. Attempting to open the protected
+    /// database registers Beacon with macOS's privacy system, so the app shows
+    /// up (toggleable) in the Full Disk Access list without the user having to
+    /// add it manually with the "+" button.
+    func warmMessageAccess() {
+        checkMessageAccess()
+    }
+
+    /// Load (or confirm) Messages access in the background so the Full Disk
+    /// Access prompt can appear even before the user types anything.
+    private func checkMessageAccess() {
+        messageQueue.async { [weak self] in
+            guard let self else { return }
+            self.messageStore.ensureLoaded()
+            let needsAccess = self.messageStore.needsFullDiskAccess
+            DispatchQueue.main.async { self.needsFullDiskAccess = needsAccess }
+        }
+    }
+
+    /// Re-attempt loading the Messages DB (e.g. after the user grants access),
+    /// then re-run the current search if we're in Messages mode.
+    func retryMessageAccess() {
+        messageStore.retry()
+        if selectedType.isMessages { scheduleSearch() }
     }
 
     // MARK: - Predicates

@@ -12,6 +12,9 @@ let package = Package(
             path: "Sources/Beacon",
             swiftSettings: [
                 .swiftLanguageMode(.v5)
+            ],
+            linkerSettings: [
+                .linkedLibrary("sqlite3")
             ]
         )
     ]

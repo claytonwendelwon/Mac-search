@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPanel()
         setupHotKey()
         showPanel()
+        // Touch the Messages DB once so macOS registers Beacon in the Full Disk
+        // Access list (users can then just flip the toggle, no manual add).
+        engine.warmMessageAccess()
         Log.write("Ready. Menu-bar icon active; panel shown.")
     }
 

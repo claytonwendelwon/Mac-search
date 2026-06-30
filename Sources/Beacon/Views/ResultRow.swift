@@ -17,7 +17,7 @@ struct ResultRow: View {
                         .font(.system(size: 13, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    if result.matchKind == .content {
+                    if result.source == .file && result.matchKind == .content {
                         Label("text match", systemImage: "text.magnifyingglass")
                             .labelStyle(.titleAndIcon)
                             .font(.system(size: 9, weight: .semibold))
@@ -28,11 +28,11 @@ struct ResultRow: View {
                             .fixedSize()
                     }
                 }
-                Text(prettyPath(result.directory))
+                Text(subtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
             }
 
             Spacer(minLength: 8)
@@ -53,7 +53,19 @@ struct ResultRow: View {
         .contentShape(Rectangle())
     }
 
+    /// For messages, the body snippet; for files, the containing folder.
+    private var subtitle: String {
+        if result.source == .message {
+            return (result.messageBody ?? "").replacingOccurrences(of: "\n", with: " ")
+        }
+        return prettyPath(result.directory)
+    }
+
     private var trailingDetail: String? {
+        if result.source == .message {
+            guard let date = result.modified else { return nil }
+            return Self.relativeDate.localizedString(for: date, relativeTo: Date())
+        }
         var parts: [String] = []
         if !result.kind.isEmpty { parts.append(result.kind) }
         if let size = result.size, size > 0 {
@@ -61,6 +73,12 @@ struct ResultRow: View {
         }
         return parts.isEmpty ? nil : parts.joined(separator: "  ·  ")
     }
+
+    private static let relativeDate: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
 
     private func prettyPath(_ path: String) -> String {
         let home = NSHomeDirectory()

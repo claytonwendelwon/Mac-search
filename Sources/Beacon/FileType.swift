@@ -12,8 +12,12 @@ enum FileType: String, CaseIterable, Identifiable {
     case pdfs
     case audio
     case folders
+    case messages
 
     var id: String { rawValue }
+
+    /// Messages are searched from the Messages database, not the file index.
+    var isMessages: Bool { self == .messages }
 
     var title: String {
         switch self {
@@ -25,6 +29,7 @@ enum FileType: String, CaseIterable, Identifiable {
         case .pdfs: return "PDFs"
         case .audio: return "Audio"
         case .folders: return "Folders"
+        case .messages: return "Messages"
         }
     }
 
@@ -39,6 +44,7 @@ enum FileType: String, CaseIterable, Identifiable {
         case .pdfs: return "doc.richtext"
         case .audio: return "music.note"
         case .folders: return "folder"
+        case .messages: return "message"
         }
     }
 
@@ -72,6 +78,8 @@ enum FileType: String, CaseIterable, Identifiable {
             return ["public.audio"]
         case .folders:
             return ["public.folder"]
+        case .messages:
+            return [] // handled by MessageStore, not the file index
         }
     }
 }

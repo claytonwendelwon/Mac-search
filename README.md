@@ -16,7 +16,10 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
   own files first; folders surface reliably).
 - Searches by name **and by text inside documents** (PDFs, text, Office/iWork,
   etc.); content matches are flagged with a "text match" badge.
-- Type filters: All, Apps, Photos, Videos, Docs, PDFs, Audio, Folders.
+- **Search your text messages** (iMessage & SMS) under the Messages filter:
+  find by word, phrase, or contact; `return` opens the conversation in Messages
+  and `⌘C` copies the message text. (Requires Full Disk Access — see below.)
+- Type filters: All, Apps, Photos, Videos, Docs, PDFs, Audio, Folders, Messages.
 - Fully keyboard-driven (no mouse needed).
 - Quick Look previews, reveal in Finder, copy path.
 - Native Swift/SwiftUI, zero third-party dependencies.
@@ -75,15 +78,24 @@ To build a debug variant, set `CONFIG=debug bash scripts/run.sh`.
 > Note: Quick Look is mapped to `⌘ Y` (instead of the Finder-style `Space`)
 > because `Space` is needed for typing multi-word searches.
 
-## Full Disk Access (optional)
+## Full Disk Access
 
-Spotlight already indexes most user locations, so Beacon works out of the box.
-For complete coverage of every folder (including some system and protected
-locations), grant access once:
+Spotlight already indexes most user locations, so **file search works out of the
+box** with no permissions. Full Disk Access unlocks two extra things:
 
-1. Open **System Settings → Privacy & Security → Full Disk Access**.
-2. Add `Beacon.app` and enable it.
-3. Quit and relaunch Beacon (`bash scripts/run.sh`).
+- **Message search** (reading `~/Library/Messages/chat.db`), and
+- complete coverage of every folder, including some protected locations.
+
+Beacon touches the Messages database once at launch, so it automatically appears
+in the Full Disk Access list — you don't need the `+` button. To grant it:
+
+1. In Beacon, select the **Messages** filter and click **Open Settings**
+   (or open **System Settings → Privacy & Security → Full Disk Access**).
+2. Find **Beacon** in the list and turn its switch **on**.
+3. When prompted, choose **Quit & Reopen** (or relaunch Beacon).
+
+> If Beacon isn't listed yet, launch it once first, then reopen the list — or
+> drag `Beacon.app` from Applications into the list.
 
 ## How it works
 
@@ -104,6 +116,10 @@ Hotkey / menu bar  ->  floating NSPanel  ->  SwiftUI SearchView
   and publishes sorted, capped results.
 - `Sources/Beacon/FileType.swift` maps each filter chip to Uniform Type
   Identifiers.
+- `Sources/Beacon/MessageStore.swift` powers the Messages filter: it opens the
+  Messages SQLite database read-only, decodes message text (including the binary
+  `attributedBody` blobs newer macOS uses), caches recent messages in memory,
+  and filters them as you type.
 
 ## Roadmap (distribution)
 

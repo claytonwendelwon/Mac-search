@@ -91,8 +91,10 @@ struct SearchView: View {
 
     private var resultsArea: some View {
         Group {
-            if engine.queryText.trimmingCharacters(in: .whitespaces).isEmpty {
-                emptyState(text: "Search your Mac", subtitle: "Type a name. Use the filters to narrow by type.")
+            if engine.selectedType.isMessages && engine.needsFullDiskAccess {
+                fullDiskAccessPrompt
+            } else if engine.queryText.trimmingCharacters(in: .whitespaces).isEmpty {
+                emptyState(text: emptyTitle, subtitle: emptySubtitle)
             } else if engine.results.isEmpty && !engine.isSearching {
                 emptyState(text: "No results", subtitle: "Try a different name or filter.")
             } else {
@@ -100,6 +102,44 @@ struct SearchView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyTitle: String {
+        engine.selectedType.isMessages ? "Search your messages" : "Search your Mac"
+    }
+
+    private var emptySubtitle: String {
+        engine.selectedType.isMessages
+            ? "Type a word, phrase, or contact to search your iMessage & SMS history."
+            : "Type a name. Use the filters to narrow by type."
+    }
+
+    private var fullDiskAccessPrompt: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 30))
+                .foregroundStyle(.tertiary)
+            Text("Full Disk Access needed")
+                .font(.system(size: 15, weight: .medium))
+            Text("Click Open Settings, turn on the Beacon switch under\nFull Disk Access, then choose \u{201C}Quit & Reopen.\u{201D}")
+                .font(.system(size: 12))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Open Settings") { openFullDiskAccessSettings() }
+                    .buttonStyle(.borderedProminent)
+                Button("Try Again") { engine.retryMessageAccess() }
+                    .buttonStyle(.bordered)
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+    }
+
+    private func openFullDiskAccessSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
+        NSWorkspace.shared.open(url)
     }
 
     private var resultsList: some View {
@@ -144,10 +184,15 @@ struct SearchView: View {
 
     private var footer: some View {
         HStack(spacing: 14) {
-            hint("return", "Open")
-            hint("⌘return", "Reveal")
-            hint("⌘Y", "Preview")
-            hint("⌘C", "Copy path")
+            if engine.selectedType.isMessages {
+                hint("return", "Open in Messages")
+                hint("⌘C", "Copy text")
+            } else {
+                hint("return", "Open")
+                hint("⌘return", "Reveal")
+                hint("⌘Y", "Preview")
+                hint("⌘C", "Copy path")
+            }
             Spacer()
             if !engine.results.isEmpty {
                 Text("\(engine.results.count) results")
@@ -192,18 +237,40 @@ struct SearchView: View {
 
     private func openSelected() {
         guard let result = selectedResult else { return }
+        if result.source == .message {
+            openMessage(result)
+            onClose()
+            return
+        }
         NSWorkspace.shared.open(result.url)
         onClose()
     }
 
+    /// Open the conversation in Messages. If we know the contact's handle we can
+    /// deep-link straight to it; otherwise just bring Messages to the front.
+    private func openMessage(_ result: SearchResult) {
+        if let handle = result.messageHandle, !handle.isEmpty,
+           let encoded = handle.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed),
+           let url = URL(string: "imessage://\(encoded)") {
+            NSWorkspace.shared.open(url)
+        } else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Messages.app"))
+        }
+    }
+
     private func revealSelected() {
         guard let result = selectedResult else { return }
+        if result.source == .message {
+            openMessage(result)
+            onClose()
+            return
+        }
         NSWorkspace.shared.activateFileViewerSelecting([result.url])
         onClose()
     }
 
     private func previewSelected() {
-        guard let result = selectedResult else { return }
+        guard let result = selectedResult, result.source == .file else { return }
         QuickLookController.shared.preview(result.url)
     }
 
@@ -211,6 +278,7 @@ struct SearchView: View {
         guard let result = selectedResult else { return }
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(result.path, forType: .string)
+        let value = result.source == .message ? (result.messageBody ?? "") : result.path
+        pb.setString(value, forType: .string)
     }
 }
