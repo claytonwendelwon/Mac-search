@@ -133,16 +133,39 @@ if [ "$PUBLISH" = "true" ]; then
   echo "==> Publishing GitHub Release v$VERSION..."
   NOTES_FILE="$(mktemp)"
   cat > "$NOTES_FILE" <<EOF
-Beacon $VERSION - a fast, native macOS Spotlight search launcher.
+Beacon $VERSION - a fast, native macOS search launcher.
 
 ## Install
 1. Download \`$APP_NAME-$VERSION.dmg\` below.
-2. Open it and drag **Beacon** into **Applications**.
-3. Launch Beacon. Press **Option + S** anywhere to search (or click the
-   magnifying-glass icon in the menu bar).
+2. Open it and drag **Beacon** into your **Applications** folder.
+3. Launch **Beacon** from Applications. It lives in the menu bar
+   (magnifying-glass icon) - there's no Dock icon or main window.
+4. Press **Option + S** anywhere to open the search bar. Press **Esc** to dismiss.
 
 This build is signed with a Developer ID and notarized by Apple, so it opens
 without security warnings.
+
+## Search your text messages (optional)
+Beacon can search your iMessage & SMS history. macOS protects the Messages
+database, so this needs **Full Disk Access** (a one-time, manual toggle that
+Apple requires for any app reading Messages):
+
+1. In Beacon, press **Option + S** and click the **Messages** filter.
+2. Click **Open Settings** - this jumps straight to
+   **System Settings -> Privacy & Security -> Full Disk Access**.
+3. Find **Beacon** in the list and turn its switch **on**.
+   (Beacon adds itself to this list automatically - no need for the "+" button.)
+4. Choose **Quit & Reopen** when prompted.
+
+Now select the **Messages** filter and search by word, phrase, or contact.
+**Return** opens the conversation in Messages; **Cmd + C** copies the text.
+
+> File search needs no permissions and works the moment you launch Beacon.
+> Full Disk Access only unlocks Messages and a few protected folders.
+
+## What's new in $VERSION
+- Search your text messages (iMessage & SMS) under the new Messages filter.
+- Beacon auto-registers for Full Disk Access so granting it is just a toggle.
 EOF
   if gh release view "v$VERSION" >/dev/null 2>&1; then
     gh release upload "v$VERSION" "$DMG_PATH" --clobber
