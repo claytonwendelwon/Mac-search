@@ -8,6 +8,20 @@ struct HistoryEntry {
     let visitCount: Int
     let lastVisit: Date
     let browser: String
+
+    // Precomputed folded haystacks so each keystroke filters without re-folding.
+    let foldedTitle: String
+    let foldedURL: String
+
+    init(url: String, title: String, visitCount: Int, lastVisit: Date, browser: String) {
+        self.url = url
+        self.title = title
+        self.visitCount = visitCount
+        self.lastVisit = lastVisit
+        self.browser = browser
+        self.foldedTitle = title.searchFolded
+        self.foldedURL = url.searchFolded
+    }
 }
 
 /// Reads and searches browser history across Safari and all Chromium-based
@@ -51,20 +65,54 @@ final class BrowserHistoryStore {
     }
 
     /// Empty `tokens` returns the most-recently-visited pages (for the empty
-    /// query state); otherwise matches title or URL.
+    /// query state); otherwise matches title or URL and ranks by match quality
+    /// plus frecency, so the page you actually use surfaces above a one-off
+    /// visit that merely happens to be more recent.
     func search(tokens: [String], limit: Int = 200) -> [HistoryEntry] {
         guard state == .ready else { return [] }
         guard !tokens.isEmpty else { return Array(cache.prefix(limit)) }
-        var out: [HistoryEntry] = []
-        out.reserveCapacity(limit)
-        for entry in cache {   // newest-first
-            let hay = (entry.title + " " + entry.url).lowercased()
-            if tokens.allSatisfy({ hay.contains($0) }) {
-                out.append(entry)
-                if out.count >= limit { break }
+
+        var scored: [(entry: HistoryEntry, quality: Int, frecency: Double)] = []
+        for entry in cache {
+            var quality = 0
+            var matched = true
+            for token in tokens {
+                if SearchText.hasWordStart(entry.foldedTitle, token) {
+                    quality += 3        // token starts a word in the title
+                } else if entry.foldedTitle.contains(token) {
+                    quality += 2        // token somewhere in the title
+                } else if entry.foldedURL.contains(token) {
+                    quality += 1        // URL-only match
+                } else {
+                    matched = false
+                    break
+                }
             }
+            guard matched else { continue }
+            scored.append((entry, quality, Self.frecency(entry)))
         }
-        return out
+
+        scored.sort { a, b in
+            if a.quality != b.quality { return a.quality > b.quality }
+            if a.frecency != b.frecency { return a.frecency > b.frecency }
+            return a.entry.lastVisit > b.entry.lastVisit
+        }
+        return scored.prefix(limit).map(\.entry)
+    }
+
+    /// Firefox-style frecency: visit count damped by how long ago the page was
+    /// last visited.
+    private static func frecency(_ entry: HistoryEntry) -> Double {
+        let days = -entry.lastVisit.timeIntervalSinceNow / 86_400
+        let weight: Double
+        switch days {
+        case ..<4:   weight = 1.0
+        case ..<14:  weight = 0.7
+        case ..<31:  weight = 0.5
+        case ..<90:  weight = 0.3
+        default:     weight = 0.1
+        }
+        return Double(max(1, entry.visitCount)) * weight
     }
 
     // MARK: - Loading

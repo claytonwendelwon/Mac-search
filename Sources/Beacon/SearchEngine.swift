@@ -29,6 +29,7 @@ struct SearchResult: Identifiable, Hashable {
     let modified: Date?
     let lastUsed: Date?
     let isFolder: Bool
+    let isApp: Bool
     let matchKind: MatchKind
 
     // Message-only fields.
@@ -69,10 +70,11 @@ struct SearchResult: Identifiable, Hashable {
 
     /// File result.
     init(id: String, name: String, path: String, kind: String, size: Int64?,
-         modified: Date?, lastUsed: Date?, isFolder: Bool, matchKind: MatchKind) {
+         modified: Date?, lastUsed: Date?, isFolder: Bool, isApp: Bool, matchKind: MatchKind) {
         self.id = id; self.source = .file; self.name = name; self.path = path
         self.kind = kind; self.size = size; self.modified = modified
-        self.lastUsed = lastUsed; self.isFolder = isFolder; self.matchKind = matchKind
+        self.lastUsed = lastUsed; self.isFolder = isFolder; self.isApp = isApp
+        self.matchKind = matchKind
         self.messageBody = nil; self.messageHandle = nil; self.messageFromMe = false
         self.noteID = nil
     }
@@ -90,6 +92,7 @@ struct SearchResult: Identifiable, Hashable {
         self.modified = m.date
         self.lastUsed = m.date
         self.isFolder = false
+        self.isApp = false
         self.matchKind = .content
         self.messageBody = m.text
         self.messageHandle = m.handle
@@ -108,6 +111,7 @@ struct SearchResult: Identifiable, Hashable {
         self.modified = n.modified
         self.lastUsed = n.modified
         self.isFolder = false
+        self.isApp = false
         self.matchKind = .content
         self.messageBody = n.body.isEmpty ? n.snippet : n.body
         self.messageHandle = nil
@@ -128,6 +132,7 @@ struct SearchResult: Identifiable, Hashable {
         self.modified = c.date
         self.lastUsed = c.date
         self.isFolder = false
+        self.isApp = false
         self.matchKind = .content
         self.messageBody = c.text
         self.messageHandle = nil
@@ -148,6 +153,7 @@ struct SearchResult: Identifiable, Hashable {
         self.modified = h.lastVisit
         self.lastUsed = h.lastVisit
         self.isFolder = false
+        self.isApp = false
         self.matchKind = .content
         self.messageBody = h.url
         self.messageHandle = nil
@@ -227,6 +233,14 @@ final class SearchEngine: ObservableObject {
     private var pendingSearch: DispatchWorkItem?
     private var currentTokens: [String] = []
 
+    /// Content search (text inside files) only kicks in once the query is long
+    /// enough to be meaningful; 1-2 characters would drown the list in noise
+    /// and slow the query down. Name search still runs from the first character.
+    private let contentMinQueryLength = 3
+    /// Whether the content query was started for the current search. When it
+    /// wasn't, its stale results from a previous search must not be read.
+    private var contentQueryActive = false
+
     init() {
         for query in [nameQuery, contentQuery] {
             query.searchScopes = [NSMetadataQueryLocalComputerScope]
@@ -265,6 +279,7 @@ final class SearchEngine: ObservableObject {
         if trimmed.isEmpty {
             nameQuery.stop()
             contentQuery.stop()
+            contentQueryActive = false
             currentTokens = []
             fileResults = []
             messageResults = []
@@ -299,7 +314,7 @@ final class SearchEngine: ObservableObject {
     private func runSearch(term: String, token: Int) {
         guard token == searchToken else { return } // superseded before we ran
         isSearching = true
-        currentTokens = term.split(whereSeparator: { $0 == " " }).map { $0.lowercased() }
+        currentTokens = SearchText.tokens(term)
 
         if selectedType.isMessages {
             searchMessages(tokens: currentTokens, token: token)
@@ -326,8 +341,11 @@ final class SearchEngine: ObservableObject {
         nameQuery.start()
 
         contentQuery.stop()
-        contentQuery.predicate = contentPredicate(tokens: currentTokens, trees: trees)
-        contentQuery.start()
+        contentQueryActive = term.count >= contentMinQueryLength
+        if contentQueryActive {
+            contentQuery.predicate = contentPredicate(tokens: currentTokens, trees: trees)
+            contentQuery.start()
+        }
 
         // In "All" mode, also fold in (best-effort) messages and notes. Clear
         // the prior buckets so stale rows don't linger until the gather lands.
@@ -346,8 +364,11 @@ final class SearchEngine: ObservableObject {
             guard let self else { return }
             self.messageStore.ensureLoaded()
             self.contacts.ensureLoaded()
+            let resolver: ((String) -> String?)? =
+                self.contacts.isReady ? { self.contacts.name(for: $0) } : nil
             let msgs: [SearchResult] = self.messageStore.needsFullDiskAccess ? [] :
-                self.messageStore.search(tokens: tokens, limit: self.allMessageCap)
+                self.messageStore.search(tokens: tokens, limit: self.allMessageCap,
+                                         nameResolver: resolver)
                     .map { SearchResult(message: $0, contactName: self.contacts.name(for: $0.handle)) }
 
             self.notesStore.ensureLoaded()
@@ -383,13 +404,16 @@ final class SearchEngine: ObservableObject {
     private func searchMessages(tokens: [String], token: Int) {
         nameQuery.stop()
         contentQuery.stop()
+        contentQueryActive = false
 
         messageQueue.async { [weak self] in
             guard let self else { return }
             self.messageStore.ensureLoaded()
             self.contacts.ensureLoaded()
             let needsAccess = self.messageStore.needsFullDiskAccess
-            let hits = self.messageStore.search(tokens: tokens)
+            let resolver: ((String) -> String?)? =
+                self.contacts.isReady ? { self.contacts.name(for: $0) } : nil
+            let hits = self.messageStore.search(tokens: tokens, nameResolver: resolver)
             let mapped = hits.map { rec in
                 SearchResult(message: rec, contactName: self.contacts.name(for: rec.handle))
             }
@@ -409,6 +433,7 @@ final class SearchEngine: ObservableObject {
     private func searchNotes(tokens: [String], token: Int) {
         nameQuery.stop()
         contentQuery.stop()
+        contentQueryActive = false
 
         messageQueue.async { [weak self] in
             guard let self else { return }
@@ -430,6 +455,7 @@ final class SearchEngine: ObservableObject {
     private func searchClipboard(tokens: [String]) {
         nameQuery.stop()
         contentQuery.stop()
+        contentQueryActive = false
         needsFullDiskAccess = false
         results = ClipboardStore.shared.search(tokens: tokens).map { SearchResult(clip: $0) }
         isSearching = false
@@ -440,6 +466,7 @@ final class SearchEngine: ObservableObject {
     private func searchHistory(tokens: [String], token: Int) {
         nameQuery.stop()
         contentQuery.stop()
+        contentQueryActive = false
 
         messageQueue.async { [weak self] in
             guard let self else { return }
@@ -552,15 +579,26 @@ final class SearchEngine: ObservableObject {
 
         // Name matches first so they win on dedupe against content matches.
         readResults(from: nameQuery, cap: nameReadCap, matchKind: .name, into: &merged)
-        readResults(from: contentQuery, cap: contentReadCap, matchKind: .content, into: &merged)
+        if contentQueryActive {
+            readResults(from: contentQuery, cap: contentReadCap, matchKind: .content, into: &merged)
+        }
 
-        fileResults = Array(merged.values)
-            .sorted(by: rank)
+        // Score once per result (folding is not free), then sort.
+        fileResults = merged.values
+            .map { (result: $0, score: score($0)) }
+            .sorted { a, b in
+                if a.score != b.score { return a.score < b.score }
+                let da = a.result.lastUsed ?? a.result.modified ?? .distantPast
+                let db = b.result.lastUsed ?? b.result.modified ?? .distantPast
+                if da != db { return da > db }
+                return a.result.name.localizedCaseInsensitiveCompare(b.result.name) == .orderedAscending
+            }
             .prefix(displayCap)
-            .map { $0 }
+            .map(\.result)
         publish()
 
-        let bothDone = !nameQuery.isGathering && !contentQuery.isGathering
+        let bothDone = !nameQuery.isGathering
+            && (!contentQueryActive || !contentQuery.isGathering)
         if bothDone { isSearching = false }
     }
 
@@ -585,43 +623,49 @@ final class SearchEngine: ObservableObject {
             let lastUsed = item.value(forAttribute: NSMetadataItemLastUsedDateKey) as? Date
             let contentType = item.value(forAttribute: NSMetadataItemContentTypeTreeKey) as? [String] ?? []
             let isFolder = contentType.contains("public.folder")
+            let isApp = contentType.contains("com.apple.application")
 
             merged[path] = SearchResult(id: path, name: name, path: path, kind: kind,
                                         size: size, modified: modified, lastUsed: lastUsed,
-                                        isFolder: isFolder, matchKind: matchKind)
+                                        isFolder: isFolder, isApp: isApp, matchKind: matchKind)
         }
     }
 
     // MARK: - Ranking
 
-    /// Lower score sorts first. Name matches beat content matches; exact names
-    /// beat prefixes beat substrings; folders get a small nudge; ties broken by
-    /// most-recently-used / modified.
-    private func rank(_ a: SearchResult, _ b: SearchResult) -> Bool {
-        let sa = score(a), sb = score(b)
-        if sa != sb { return sa < sb }
-        let da = a.lastUsed ?? a.modified ?? .distantPast
-        let db = b.lastUsed ?? b.modified ?? .distantPast
-        if da != db { return da > db }
-        return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-    }
-
+    /// Lower score sorts first (ties broken by most-recently-used, then name).
+    ///
+    /// Tiers, best to worst:
+    ///   0   exact name — with or without the extension, so "report" exact-
+    ///       matches "report.pdf", the way a launcher is expected to
+    ///   100 name starts with the whole query ("saf" -> Safari)
+    ///   200 every token starts a word in the name ("chase stat" ->
+    ///       "Chase Statement.pdf")
+    ///   300 every token appears somewhere in the name
+    ///   400 matched only on the path / on-disk name
+    ///   500 matched by text inside the file
+    /// Within a tier: apps first (launcher expectation), then folders, then
+    /// the user's own files over system paths.
     private func score(_ r: SearchResult) -> Int {
-        let lowerName = r.name.lowercased()
+        let name = r.name.searchFolded
+        let stem = (r.name as NSString).deletingPathExtension.searchFolded
         let query = currentTokens.joined(separator: " ")
         var base: Int
         if r.matchKind == .content {
-            base = 400
-        } else if lowerName == query {
-            base = 0                                   // exact name
-        } else if let first = currentTokens.first, lowerName.hasPrefix(first) {
-            base = 100                                 // name starts with query
-        } else if currentTokens.allSatisfy({ lowerName.contains($0) }) {
-            base = 200                                 // all tokens in name
+            base = 500
+        } else if name == query || stem == query {
+            base = 0
+        } else if name.hasPrefix(query) || stem.hasPrefix(query) {
+            base = 100
+        } else if currentTokens.allSatisfy({ SearchText.hasWordStart(name, $0) }) {
+            base = 200
+        } else if currentTokens.allSatisfy({ name.contains($0) }) {
+            base = 300
         } else {
-            base = 300                                 // matched on path/fs name
+            base = 400
         }
-        if r.isFolder { base -= 10 }                 // nudge folders up within their tier
+        if r.isApp { base -= 50 }                     // launching apps is the top use case
+        if r.isFolder { base -= 10 }                  // nudge folders up within their tier
         if r.path.hasPrefix(homePath) { base -= 30 }  // prefer the user's own files
         return base
     }

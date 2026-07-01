@@ -15,9 +15,14 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
 - Live results as you type, with smart ranking (exact name matches and your
   own files first; folders surface reliably).
 - Searches by name **and by text inside documents** (PDFs, text, Office/iWork,
-  etc.); content matches are flagged with a "text match" badge.
+  etc.); content matches are flagged with a "text match" badge and kick in
+  once the query is 3+ characters (name search is instant from the first).
+- All matching is case- and accent-insensitive across every source
+  ("jose" finds "José" in files, messages, notes, and history alike).
 - **Search your text messages** (iMessage & SMS) under the Messages filter:
-  find by word, phrase, or contact across your whole history; results show the
+  find by word, phrase, or **contact name** across your whole history
+  (typing "Mom" surfaces Mom's messages, not just texts containing the word);
+  results show the
   **contact's name**, a snippet centered on the match, and when it was sent.
   `return` opens the conversation in Messages and `⌘C` copies the text.
   (Requires Full Disk Access; sender names use Contacts — see below.)

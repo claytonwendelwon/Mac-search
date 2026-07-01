@@ -8,6 +8,9 @@ struct MessageRecord {
     let isFromMe: Bool
     let handle: String   // the other party's phone/email ("" if unknown / group)
     let text: String
+    /// Case/diacritic-folded "text handle", precomputed once at load so each
+    /// keystroke filters without re-folding the whole history.
+    let folded: String
 }
 
 /// Reads and searches the macOS Messages database (`~/Library/Messages/chat.db`).
@@ -52,7 +55,11 @@ final class MessageStore {
         ensureLoaded()
     }
 
-    func search(tokens: [String], limit: Int = 80) -> [MessageRecord] {
+    /// Search by message text, raw handle, or (when `nameResolver` is given)
+    /// the resolved contact name — so typing "Mom" finds Mom's messages, not
+    /// just messages containing the word. Tokens must already be folded.
+    func search(tokens: [String], limit: Int = 80,
+                nameResolver: ((String) -> String?)? = nil) -> [MessageRecord] {
         guard state == .ready, !tokens.isEmpty else {
             Log.write("MessageStore: search skipped (state=\(state), tokens=\(tokens))")
             return []
@@ -60,14 +67,30 @@ final class MessageStore {
         var out: [MessageRecord] = []
         out.reserveCapacity(limit)
         for rec in cache {   // already sorted newest-first
-            let hay = (rec.text + " " + rec.handle).lowercased()
-            if tokens.allSatisfy({ hay.contains($0) }) {
+            let name = nameResolver.flatMap { foldedName(for: rec.handle, resolve: $0) }
+            let hit = tokens.allSatisfy { token in
+                rec.folded.contains(token) || (name?.contains(token) ?? false)
+            }
+            if hit {
                 out.append(rec)
                 if out.count >= limit { break }
             }
         }
         Log.write("MessageStore: search tokens=\(tokens) cache=\(cache.count) matched=\(out.count)")
         return out
+    }
+
+    /// Folded contact names, cached per handle. Only consulted once the
+    /// resolver is ready, so cached values are stable. Accessed solely from the
+    /// engine's serial message queue.
+    private var nameCache: [String: String?] = [:]
+
+    private func foldedName(for handle: String, resolve: (String) -> String?) -> String? {
+        guard !handle.isEmpty else { return nil }
+        if let cached = nameCache[handle] { return cached }
+        let folded = resolve(handle)?.searchFolded
+        nameCache[handle] = folded
+        return folded
     }
 
     // MARK: - Loading
@@ -136,7 +159,8 @@ final class MessageStore {
                                          date: Self.appleDate(rawDate),
                                          isFromMe: isFromMe,
                                          handle: handle,
-                                         text: text))
+                                         text: text,
+                                         folded: (text + " " + handle).searchFolded))
         }
 
         cache = records

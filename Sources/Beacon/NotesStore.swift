@@ -10,6 +10,9 @@ struct NoteRecord {
     let body: String      // full decoded text ("" if decode failed)
     let modified: Date
     let appleScriptID: String  // x-coredata:// id used to `show` the note ("" if unknown)
+    /// Case/diacritic-folded "title body", precomputed once at load so each
+    /// keystroke filters without re-folding every note body.
+    let folded: String
 }
 
 /// Reads and searches the Apple Notes database
@@ -52,8 +55,7 @@ final class NotesStore {
         }
         var out: [NoteRecord] = []
         for rec in cache {  // newest-first
-            let haystack = (rec.title + " " + (rec.body.isEmpty ? rec.snippet : rec.body)).lowercased()
-            if tokens.allSatisfy({ haystack.contains($0) }) {
+            if tokens.allSatisfy({ rec.folded.contains($0) }) {
                 out.append(rec)
                 if out.count >= limit { break }
             }
@@ -128,9 +130,10 @@ final class NotesStore {
 
             let cleanTitle = title.isEmpty ? "Untitled Note" : title
             let scriptID = storeUUID.isEmpty ? "" : "x-coredata://\(storeUUID)/ICNote/p\(pk)"
+            let folded = (cleanTitle + " " + (body.isEmpty ? snippet : body)).searchFolded
             records.append(NoteRecord(pk: pk, title: cleanTitle, snippet: snippet,
                                       body: body, modified: Self.appleDate(rawDate),
-                                      appleScriptID: scriptID))
+                                      appleScriptID: scriptID, folded: folded))
         }
 
         cache = records

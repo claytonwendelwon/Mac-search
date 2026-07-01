@@ -9,9 +9,8 @@ struct SearchView: View {
 
     private var highlightTokens: [String] {
         engine.queryText
-            .split(whereSeparator: { $0 == " " })
+            .split(whereSeparator: \.isWhitespace)
             .map(String.init)
-            .filter { !$0.isEmpty }
     }
 
     var body: some View {

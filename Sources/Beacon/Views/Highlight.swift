@@ -47,7 +47,8 @@ enum Highlight {
         let firstMatch = tokens
             .compactMap { token -> Int? in
                 guard !token.isEmpty,
-                      let r = collapsed.range(of: token, options: .caseInsensitive)
+                      let r = collapsed.range(of: token,
+                                              options: [.caseInsensitive, .diacriticInsensitive])
                 else { return nil }
                 return collapsed.distance(from: collapsed.startIndex, to: r.lowerBound)
             }
@@ -65,7 +66,8 @@ enum Highlight {
         var ranges: [Range<String.Index>] = []
         for token in tokens where !token.isEmpty {
             var start = text.startIndex
-            while let r = text.range(of: token, options: .caseInsensitive,
+            while let r = text.range(of: token,
+                                     options: [.caseInsensitive, .diacriticInsensitive],
                                      range: start..<text.endIndex) {
                 ranges.append(r)
                 start = r.upperBound

@@ -22,6 +22,8 @@ final class ClipboardStore {
     private(set) var entries: [ClipEntry] = []
     private let maxEntries = 500
     private let lock = NSLock()
+    /// Folded search text per entry id, so keystrokes don't re-fold history.
+    private var folded: [String: String] = [:]
 
     private let pasteboard = NSPasteboard.general
     private var lastChangeCount = 0
@@ -61,7 +63,7 @@ final class ClipboardStore {
         lock.lock(); defer { lock.unlock() }
         guard !tokens.isEmpty else { return Array(entries.prefix(limit)) }
         let matches = entries.filter { entry in
-            let hay = entry.text.lowercased()
+            let hay = folded[entry.id] ?? entry.text.searchFolded
             return tokens.allSatisfy { hay.contains($0) }
         }
         return Array(matches.prefix(limit))
@@ -101,16 +103,21 @@ final class ClipboardStore {
     private func add(text: String, app: String?) {
         lock.lock()
         // De-dupe: if identical to an existing entry, move it to the top.
+        for old in entries where old.text == text { folded[old.id] = nil }
         entries.removeAll { $0.text == text }
-        entries.insert(ClipEntry(id: UUID().uuidString, text: text, date: Date(), app: app), at: 0)
-        if entries.count > maxEntries { entries.removeLast(entries.count - maxEntries) }
+        let entry = ClipEntry(id: UUID().uuidString, text: text, date: Date(), app: app)
+        entries.insert(entry, at: 0)
+        folded[entry.id] = text.searchFolded
+        while entries.count > maxEntries {
+            folded[entries.removeLast().id] = nil
+        }
         let snapshot = entries
         lock.unlock()
         saveCache(snapshot)
     }
 
     func clear() {
-        lock.lock(); entries = []; let snap = entries; lock.unlock()
+        lock.lock(); entries = []; folded = [:]; let snap = entries; lock.unlock()
         saveCache(snap)
     }
 
@@ -120,6 +127,7 @@ final class ClipboardStore {
         guard let data = try? Data(contentsOf: cacheURL),
               let decoded = try? JSONDecoder().decode([ClipEntry].self, from: data) else { return }
         entries = decoded
+        for entry in decoded { folded[entry.id] = entry.text.searchFolded }
     }
 
     private func saveCache(_ snapshot: [ClipEntry]) {

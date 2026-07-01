@@ -13,6 +13,10 @@ final class ContactResolver {
     private var phoneMap: [String: String] = [:]  // last 10 digits -> name
     private var emailMap: [String: String] = [:]  // lowercased email -> name
 
+    /// True once contacts are fully loaded, so lookups are complete and stable
+    /// (callers may cache the results).
+    var isReady: Bool { state == .ready }
+
     /// Load contacts once. Requests access the first time; safe to call repeatedly.
     func ensureLoaded() {
         guard state == .idle else { return }
