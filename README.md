@@ -39,10 +39,11 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
 ## Download (for users)
 
 1. Go to the [latest release](https://github.com/claytonwendelwon/Mac-search/releases/latest).
-2. Download `Beacon-<version>.dmg`.
-3. Open the `.dmg` and drag **Beacon** into your **Applications** folder.
-4. Launch Beacon from Applications. It lives in the menu bar (magnifying-glass icon).
-5. Press **Option + S** anywhere to search.
+2. Download `Beacon-<version>.dmg` and open it.
+3. **Double-click Beacon** - it installs itself into Applications, relaunches
+   from there, and opens the search bar with a first-run hotkey tip.
+   (Dragging it to Applications works too.)
+4. Press **Option + S** anywhere to search. Beacon lives in the menu bar.
 
 The app is signed with a Developer ID and notarized by Apple, so it opens
 without security warnings.

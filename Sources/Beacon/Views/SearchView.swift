@@ -7,6 +7,9 @@ struct SearchView: View {
 
     @State private var selectedIndex: Int = 0
 
+    /// One-time onboarding hint (the global hotkey) shown until dismissed.
+    @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
+
     private var highlightTokens: [String] {
         engine.queryText
             .split(whereSeparator: \.isWhitespace)
@@ -19,6 +22,7 @@ struct SearchView: View {
             Divider()
             filterChips
             Divider()
+            if !hasSeenWelcome { welcomeBanner }
             resultsArea
             footer
         }
@@ -126,6 +130,37 @@ struct SearchView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// First-launch onboarding strip: teaches the one thing a new user must
+    /// know (the global hotkey), then gets out of the way forever.
+    private var welcomeBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12))
+                .foregroundStyle(Color.accentColor)
+            Text("Welcome to Beacon - press")
+                .font(.system(size: 12))
+            Text("⌥ S")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.08)))
+            Text("anywhere to open search. It lives in your menu bar.")
+                .font(.system(size: 12))
+            Spacer()
+            Button {
+                hasSeenWelcome = true
+            } label: {
+                Text("Got it")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.accentColor.opacity(0.08))
+        .overlay(Divider(), alignment: .bottom)
     }
 
     private var emptyTitle: String {

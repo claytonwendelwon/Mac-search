@@ -13,6 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.write("Launching Beacon...")
+        // Launched from the DMG or Downloads? Install into /Applications and
+        // relaunch from there - the user never has to drag anything.
+        if SelfInstaller.installIfNeeded() { return }
         setupStatusItem()
         setupPanel()
         setupHotKey()

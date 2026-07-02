@@ -85,6 +85,7 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 cp "$BUILD_DIR/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 cp "$ROOT/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+cp "$ROOT/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
 
 # --- Sign (Hardened Runtime + secure timestamp) -----------------------------
@@ -137,11 +138,12 @@ if [ "$PUBLISH" = "true" ]; then
 Beacon $VERSION - a fast, native macOS search launcher.
 
 ## Install
-1. Download \`$APP_NAME-$VERSION.dmg\` below.
-2. Open it and drag **Beacon** into your **Applications** folder.
-3. Launch **Beacon** from Applications. It lives in the menu bar
-   (magnifying-glass icon) - there's no Dock icon or main window.
-4. Press **Option + S** anywhere to open the search bar. Press **Esc** to dismiss.
+1. Download \`$APP_NAME-$VERSION.dmg\` below and open it.
+2. **Double-click Beacon.** That's it - it installs itself into Applications,
+   relaunches from there, and opens the search bar with a quick hotkey tip.
+   (Dragging to the Applications folder still works too, if you prefer.)
+3. Press **Option + S** anywhere to open the search bar. Press **Esc** to dismiss.
+   Beacon lives in the menu bar (its beacon icon) - no Dock icon or main window.
 
 This build is signed with a Developer ID and notarized by Apple, so it opens
 without security warnings.
@@ -182,14 +184,22 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
   exact note.
 
 ## What's new in $VERSION
-- **Rock-solid search consistency.** Reworked the search engine so results
-  always belong to the filter you're on. Fixed a race where a slow search
-  (e.g. Messages) could land on the wrong tab (e.g. Notes), items went missing,
-  or the list looked stale.
-- **Switching filters starts fresh.** Changing the filter now clears the list
-  instantly and re-runs cleanly - no leftover rows from the previous filter.
-- Smoother feedback while typing or switching: a brief spinner instead of a
-  flash of "No results."
+- **One-click install.** Open the DMG and double-click Beacon - it moves
+  itself into Applications and relaunches, ready to use. A first-run banner
+  teaches the Option + S hotkey.
+- **A real app icon.** Beacon now has its own icon in Finder, the Full Disk
+  Access list, and everywhere else.
+- **Smarter results.** Exact-name matches now win even with a file extension
+  ("report" puts report.pdf on top), multi-word queries match at word
+  boundaries ("chase stat" finds "Chase Statement.pdf"), and apps rank first
+  when you type their name - launcher style.
+- **Search Messages by contact.** Typing "Mom" surfaces Mom's conversation,
+  not just texts containing the word "mom".
+- **Accent-insensitive everywhere.** "jose" finds "José" across files,
+  messages, notes, clipboard, and history.
+- **Better browser-history ranking.** Frequently-visited pages now outrank
+  one-off visits (match quality + frecency instead of pure recency).
+- Faster keystroke-to-result time on large Messages/Notes libraries.
 
 Upgrading from an earlier version? Just replace the app in Applications -
 your Full Disk Access setting carries over. Clipboard history starts recording
