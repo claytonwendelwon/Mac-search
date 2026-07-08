@@ -102,6 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPanel() {
         guard let panel else { return }
+        // Re-run the active query so the reopened panel is never stale.
+        engine.refreshForPanelShow()
         panel.positionOnActiveScreen()
         // Pull the app forward (even from another app / full-screen space) and
         // make the panel key so the search field can show a blinking caret.

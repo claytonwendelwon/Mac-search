@@ -68,12 +68,14 @@ final class BrowserHistoryStore {
     /// query state); otherwise matches title or URL and ranks by match quality
     /// plus frecency, so the page you actually use surfaces above a one-off
     /// visit that merely happens to be more recent.
-    func search(tokens: [String], limit: Int = 200) -> [HistoryEntry] {
+    func search(tokens: [String], limit: Int = 200,
+                isCancelled: (() -> Bool)? = nil) -> [HistoryEntry] {
         guard state == .ready else { return [] }
         guard !tokens.isEmpty else { return Array(cache.prefix(limit)) }
 
         var scored: [(entry: HistoryEntry, quality: Int, frecency: Double)] = []
-        for entry in cache {
+        for (index, entry) in cache.enumerated() {
+            if index & 0x3FF == 0, isCancelled?() == true { return [] }
             var quality = 0
             var matched = true
             for token in tokens {

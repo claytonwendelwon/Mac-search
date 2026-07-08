@@ -48,13 +48,15 @@ final class NotesStore {
         ensureLoaded()
     }
 
-    func search(tokens: [String], limit: Int = 80) -> [NoteRecord] {
+    func search(tokens: [String], limit: Int = 80,
+                isCancelled: (() -> Bool)? = nil) -> [NoteRecord] {
         guard state == .ready, !tokens.isEmpty else {
             Log.write("NotesStore: search skipped (state=\(state))")
             return []
         }
         var out: [NoteRecord] = []
-        for rec in cache {  // newest-first
+        for (index, rec) in cache.enumerated() {  // newest-first
+            if index & 0xFF == 0, isCancelled?() == true { return out }
             if tokens.allSatisfy({ rec.folded.contains($0) }) {
                 out.append(rec)
                 if out.count >= limit { break }

@@ -188,17 +188,17 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
   exact note.
 
 ## What's new in $VERSION
-- **New Recents filter.** A clean recent-files timeline sits next to All. It
-  shows files you've opened, saved, or added in the last 30 days and keeps the
-  newest touch (opened / added / modified) at the top.
-- **Fresh saves show up.** Recents now runs separate "recently opened" and
-  "recently added" Spotlight passes, so a brand-new image, video, screenshot,
-  or download appears immediately even before you've opened it.
-- **Finder noise filtered out.** Recents excludes apps, folders, hidden files,
-  ~/Library internals, caches, and node_modules so the list stays focused on
-  user files instead of app-specific junk.
-- **Type within Recents.** The Recents tab is browsable with an empty query,
-  and typing narrows by filename while preserving the recency timeline.
+- **Search no longer wedges on stale results.** Messages, Notes, and History
+  now cancel superseded scans mid-loop, so typing a rare word like "contract"
+  cannot leave the list stuck on results from the first keystroke.
+- **Faster Messages filtering.** Message text/handle matches use the
+  precomputed search haystack first and only fall back to contact-name lookup
+  when needed, making full-history scans much cheaper.
+- **Recents catches fresh saves and downloads.** Recents is scoped to real user
+  folders at the Spotlight-query level and reads deeper, so a newly saved image
+  from Safari or downloaded PDF is not buried under ~/Library cache churn.
+- **Panel reopen self-heals.** Summoning Beacon re-runs the active query, so
+  the list reflects fresh files/messages and does not require relaunching.
 
 Upgrading from an earlier version? Just replace the app in Applications -
 your Full Disk Access setting carries over. Clipboard history starts recording

@@ -229,10 +229,32 @@ final class SearchEngine: ObservableObject {
     /// the token still matches - so stale/superseded searches are dropped.
     private var searchToken = 0
 
+    /// Thread-safe mirror of `searchToken`, readable from the background scan
+    /// so an in-flight store search can abort mid-scan the moment it's
+    /// superseded. Without this, slow scans (a rare word across a huge
+    /// Messages history) pile up on the serial queue, every publish gets
+    /// dropped as stale, and the UI wedges on old results until relaunch.
+    private final class Generation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func set(_ newValue: Int) { lock.lock(); value = newValue; lock.unlock() }
+        var current: Int { lock.lock(); defer { lock.unlock() }; return value }
+    }
+    private let liveToken = Generation()
+
+    /// Cancellation probe for a store scan started under `token`.
+    private func cancellation(for token: Int) -> () -> Bool {
+        { [liveToken] in liveToken.current != token }
+    }
+
     // Read generous caps so rarely-used items aren't dropped before ranking.
     private let nameReadCap = 500
     private let contentReadCap = 250
     private let displayCap = 120
+    /// Recents reads deeper than regular searches: it is scoped to the user's
+    /// own folders, but a burst of new files (a build, an export) shouldn't
+    /// push a fresh download out of the readable window.
+    private let recentsReadCap = 1500
 
     // Per-source buckets, merged in `.all` mode by `publish()`.
     private var fileResults: [SearchResult] = []
@@ -288,7 +310,9 @@ final class SearchEngine: ObservableObject {
         pendingSearch?.cancel()
         // Bump the generation up front so any in-flight async search is
         // invalidated immediately (the moment the query or filter changes).
+        // Mirroring into `liveToken` lets background scans abort mid-loop.
         searchToken &+= 1
+        liveToken.set(searchToken)
         let token = searchToken
         let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -363,6 +387,7 @@ final class SearchEngine: ObservableObject {
         let trees = selectedType.contentTypeTrees
 
         nameQuery.stop()
+        nameQuery.searchScopes = [NSMetadataQueryLocalComputerScope]
         nameQuery.sortDescriptors = Self.defaultSortDescriptors
         nameQuery.predicate = namePredicate(tokens: currentTokens, trees: trees)
         nameQuery.start()
@@ -370,6 +395,7 @@ final class SearchEngine: ObservableObject {
         contentQuery.stop()
         contentQueryActive = term.count >= contentMinQueryLength
         if contentQueryActive {
+            contentQuery.searchScopes = [NSMetadataQueryLocalComputerScope]
             contentQuery.sortDescriptors = Self.defaultSortDescriptors
             contentQuery.predicate = contentPredicate(tokens: currentTokens, trees: trees)
             contentQuery.start()
@@ -392,16 +418,18 @@ final class SearchEngine: ObservableObject {
             guard let self else { return }
             self.messageStore.ensureLoaded()
             self.contacts.ensureLoaded()
+            let cancelled = self.cancellation(for: token)
             let resolver: ((String) -> String?)? =
                 self.contacts.isReady ? { self.contacts.name(for: $0) } : nil
             let msgs: [SearchResult] = self.messageStore.needsFullDiskAccess ? [] :
                 self.messageStore.search(tokens: tokens, limit: self.allMessageCap,
-                                         nameResolver: resolver)
+                                         nameResolver: resolver, isCancelled: cancelled)
                     .map { SearchResult(message: $0, contactName: self.contacts.name(for: $0.handle)) }
 
             self.notesStore.ensureLoaded()
             let notes: [SearchResult] = self.notesStore.needsFullDiskAccess ? [] :
-                self.notesStore.search(tokens: tokens, limit: self.allNoteCap).map { SearchResult(note: $0) }
+                self.notesStore.search(tokens: tokens, limit: self.allNoteCap,
+                                       isCancelled: cancelled).map { SearchResult(note: $0) }
 
             DispatchQueue.main.async {
                 guard token == self.searchToken, self.selectedType == .all else { return }
@@ -441,7 +469,8 @@ final class SearchEngine: ObservableObject {
             let needsAccess = self.messageStore.needsFullDiskAccess
             let resolver: ((String) -> String?)? =
                 self.contacts.isReady ? { self.contacts.name(for: $0) } : nil
-            let hits = self.messageStore.search(tokens: tokens, nameResolver: resolver)
+            let hits = self.messageStore.search(tokens: tokens, nameResolver: resolver,
+                                                isCancelled: self.cancellation(for: token))
             let mapped = hits.map { rec in
                 SearchResult(message: rec, contactName: self.contacts.name(for: rec.handle))
             }
@@ -467,7 +496,9 @@ final class SearchEngine: ObservableObject {
             guard let self else { return }
             self.notesStore.ensureLoaded()
             let needsAccess = self.notesStore.needsFullDiskAccess
-            let mapped = self.notesStore.search(tokens: tokens).map { SearchResult(note: $0) }
+            let mapped = self.notesStore.search(tokens: tokens,
+                                                isCancelled: self.cancellation(for: token))
+                .map { SearchResult(note: $0) }
 
             DispatchQueue.main.async {
                 guard token == self.searchToken, self.selectedType.isNotes else { return }
@@ -500,7 +531,9 @@ final class SearchEngine: ObservableObject {
             guard let self else { return }
             self.historyStore.ensureLoaded()
             let safariDenied = self.historyStore.safariDenied
-            let mapped = self.historyStore.search(tokens: tokens).map { SearchResult(history: $0) }
+            let mapped = self.historyStore.search(tokens: tokens,
+                                                  isCancelled: self.cancellation(for: token))
+                .map { SearchResult(history: $0) }
 
             DispatchQueue.main.async {
                 guard token == self.searchToken, self.selectedType.isHistory else { return }
@@ -537,14 +570,17 @@ final class SearchEngine: ObservableObject {
             guard let nameFilter else { return p }
             return NSCompoundPredicate(andPredicateWithSubpredicates: [nameFilter, p])
         }
+        let scopes = recentsScopes()
 
         nameQuery.stop()
+        nameQuery.searchScopes = scopes
         nameQuery.sortDescriptors = Self.defaultSortDescriptors
         nameQuery.predicate = withNameFilter(
             NSPredicate(format: "kMDItemLastUsedDate >= %@", cutoff))
         nameQuery.start()
 
         contentQuery.stop()
+        contentQuery.searchScopes = scopes
         contentQuery.sortDescriptors = [
             NSSortDescriptor(key: NSMetadataItemDateAddedKey, ascending: false)
         ]
@@ -552,6 +588,32 @@ final class SearchEngine: ObservableObject {
             NSPredicate(format: "kMDItemDateAdded >= %@", cutoff))
         contentQueryActive = true
         contentQuery.start()
+    }
+
+    /// Scope Recents to the user's visible top-level folders (plus iCloud
+    /// Drive). Machine-wide scope lets app junk win: browsers, IDEs, and
+    /// sync agents add hundreds of cache/log files a minute under ~/Library,
+    /// and since Spotlight hands us rows in sort order up to a read cap, a
+    /// fresh download gets buried below the junk within minutes and never
+    /// gets read. Scoping at the query level keeps the cap for real files.
+    private func recentsScopes() -> [Any] {
+        let fm = FileManager.default
+        var scopes: [URL] = []
+        let entries = (try? fm.contentsOfDirectory(atPath: homePath)) ?? []
+        for entry in entries.sorted() {
+            guard !entry.hasPrefix("."), entry != "Library", entry != "Applications" else { continue }
+            var isDirectory: ObjCBool = false
+            let path = homePath + "/" + entry
+            if fm.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+                scopes.append(URL(fileURLWithPath: path, isDirectory: true))
+            }
+        }
+        // iCloud Drive lives under ~/Library, so add it back explicitly.
+        let icloud = homePath + "/Library/Mobile Documents/com~apple~CloudDocs"
+        if fm.fileExists(atPath: icloud) {
+            scopes.append(URL(fileURLWithPath: icloud, isDirectory: true))
+        }
+        return scopes.isEmpty ? [NSMetadataQueryUserHomeScope] : scopes
     }
 
     /// What belongs in Recents: the user's own documents. Excludes apps,
@@ -562,7 +624,9 @@ final class SearchEngine: ObservableObject {
         guard !r.isApp, !r.isFolder else { return false }
         guard r.path.hasPrefix(homePath + "/") else { return false }
         let relative = r.path.dropFirst(homePath.count)
-        if relative.hasPrefix("/Library/") { return false }
+        // ~/Library is app territory - except iCloud Drive, which lives there.
+        if relative.hasPrefix("/Library/"),
+           !relative.hasPrefix("/Library/Mobile Documents/") { return false }
         for component in relative.split(separator: "/") {
             if component.hasPrefix(".") { return false }
             if component == "node_modules" || component == "Caches" { return false }
@@ -601,6 +665,14 @@ final class SearchEngine: ObservableObject {
             }
             DispatchQueue.main.async { self.needsFullDiskAccess = needsAccess }
         }
+    }
+
+    /// Re-run the current query whenever the panel is summoned. Guarantees the
+    /// list reflects the world *now* (fresh downloads in Recents, new messages,
+    /// new clipboard entries) and self-heals any view that wedged on a stale
+    /// publish - without waiting for the user to retype.
+    func refreshForPanelShow() {
+        scheduleSearch()
     }
 
     /// Re-attempt loading the protected DBs (e.g. after the user grants access),
@@ -665,8 +737,8 @@ final class SearchEngine: ObservableObject {
             // Both queries are name-kind here: the second pass fetches
             // recently *added* files, not text-content matches, so no
             // "text match" badge applies.
-            readResults(from: nameQuery, cap: nameReadCap, matchKind: .name, into: &merged)
-            readResults(from: contentQuery, cap: nameReadCap, matchKind: .name, into: &merged)
+            readResults(from: nameQuery, cap: recentsReadCap, matchKind: .name, into: &merged)
+            readResults(from: contentQuery, cap: recentsReadCap, matchKind: .name, into: &merged)
         } else {
             // Name matches first so they win on dedupe against content matches.
             readResults(from: nameQuery, cap: nameReadCap, matchKind: .name, into: &merged)

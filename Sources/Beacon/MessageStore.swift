@@ -58,18 +58,32 @@ final class MessageStore {
     /// Search by message text, raw handle, or (when `nameResolver` is given)
     /// the resolved contact name — so typing "Mom" finds Mom's messages, not
     /// just messages containing the word. Tokens must already be folded.
+    ///
+    /// `isCancelled` is polled during the scan; a search that has been
+    /// superseded by newer keystrokes aborts immediately instead of grinding
+    /// through the rest of the history (its partial result is dropped by the
+    /// caller's generation check anyway).
     func search(tokens: [String], limit: Int = 80,
-                nameResolver: ((String) -> String?)? = nil) -> [MessageRecord] {
+                nameResolver: ((String) -> String?)? = nil,
+                isCancelled: (() -> Bool)? = nil) -> [MessageRecord] {
         guard state == .ready, !tokens.isEmpty else {
             Log.write("MessageStore: search skipped (state=\(state), tokens=\(tokens))")
             return []
         }
         var out: [MessageRecord] = []
         out.reserveCapacity(limit)
-        for rec in cache {   // already sorted newest-first
-            let name = nameResolver.flatMap { foldedName(for: rec.handle, resolve: $0) }
+        for (index, rec) in cache.enumerated() {   // already sorted newest-first
+            if index & 0x3FF == 0, isCancelled?() == true {
+                Log.write("MessageStore: search cancelled at row \(index) tokens=\(tokens)")
+                return out
+            }
+            // Fast path: match on the precomputed text+handle haystack first;
+            // only fall back to the contact-name lookup when the text misses.
             let hit = tokens.allSatisfy { token in
-                rec.folded.contains(token) || (name?.contains(token) ?? false)
+                if rec.folded.contains(token) { return true }
+                guard let nameResolver,
+                      let name = foldedName(for: rec.handle, resolve: nameResolver) else { return false }
+                return name.contains(token)
             }
             if hit {
                 out.append(rec)
