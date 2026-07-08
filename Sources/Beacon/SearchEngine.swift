@@ -28,9 +28,17 @@ struct SearchResult: Identifiable, Hashable {
     let size: Int64?
     let modified: Date?
     let lastUsed: Date?
+    let dateAdded: Date?  // when the file appeared in its folder (downloads/saves)
     let isFolder: Bool
     let isApp: Bool
     let matchKind: MatchKind
+
+    /// The most recent moment the user touched this item in any way - opened,
+    /// saved/modified, or added to a folder. Drives the Recents timeline.
+    var effectiveRecency: Date {
+        max(lastUsed ?? .distantPast,
+            max(dateAdded ?? .distantPast, modified ?? .distantPast))
+    }
 
     // Message-only fields.
     let messageBody: String?
@@ -70,10 +78,12 @@ struct SearchResult: Identifiable, Hashable {
 
     /// File result.
     init(id: String, name: String, path: String, kind: String, size: Int64?,
-         modified: Date?, lastUsed: Date?, isFolder: Bool, isApp: Bool, matchKind: MatchKind) {
+         modified: Date?, lastUsed: Date?, dateAdded: Date?,
+         isFolder: Bool, isApp: Bool, matchKind: MatchKind) {
         self.id = id; self.source = .file; self.name = name; self.path = path
         self.kind = kind; self.size = size; self.modified = modified
-        self.lastUsed = lastUsed; self.isFolder = isFolder; self.isApp = isApp
+        self.lastUsed = lastUsed; self.dateAdded = dateAdded
+        self.isFolder = isFolder; self.isApp = isApp
         self.matchKind = matchKind
         self.messageBody = nil; self.messageHandle = nil; self.messageFromMe = false
         self.noteID = nil
@@ -91,6 +101,7 @@ struct SearchResult: Identifiable, Hashable {
         self.size = nil
         self.modified = m.date
         self.lastUsed = m.date
+        self.dateAdded = nil
         self.isFolder = false
         self.isApp = false
         self.matchKind = .content
@@ -110,6 +121,7 @@ struct SearchResult: Identifiable, Hashable {
         self.size = nil
         self.modified = n.modified
         self.lastUsed = n.modified
+        self.dateAdded = nil
         self.isFolder = false
         self.isApp = false
         self.matchKind = .content
@@ -131,6 +143,7 @@ struct SearchResult: Identifiable, Hashable {
         self.size = nil
         self.modified = c.date
         self.lastUsed = c.date
+        self.dateAdded = nil
         self.isFolder = false
         self.isApp = false
         self.matchKind = .content
@@ -152,6 +165,7 @@ struct SearchResult: Identifiable, Hashable {
         self.size = nil
         self.modified = h.lastVisit
         self.lastUsed = h.lastVisit
+        self.dateAdded = nil
         self.isFolder = false
         self.isApp = false
         self.matchKind = .content
@@ -241,13 +255,15 @@ final class SearchEngine: ObservableObject {
     /// wasn't, its stale results from a previous search must not be read.
     private var contentQueryActive = false
 
+    private static let defaultSortDescriptors = [
+        NSSortDescriptor(key: NSMetadataItemLastUsedDateKey, ascending: false),
+        NSSortDescriptor(key: NSMetadataItemFSContentChangeDateKey, ascending: false)
+    ]
+
     init() {
         for query in [nameQuery, contentQuery] {
             query.searchScopes = [NSMetadataQueryLocalComputerScope]
-            query.sortDescriptors = [
-                NSSortDescriptor(key: NSMetadataItemLastUsedDateKey, ascending: false),
-                NSSortDescriptor(key: NSMetadataItemFSContentChangeDateKey, ascending: false)
-            ]
+            query.sortDescriptors = Self.defaultSortDescriptors
             query.notificationBatchingInterval = 0.2
         }
 
@@ -284,7 +300,8 @@ final class SearchEngine: ObservableObject {
             fileResults = []
             messageResults = []
             noteResults = []
-            // Clipboard & History show recent items when the query is empty.
+            // Clipboard, History & Recents show recent items when the query
+            // is empty - they're browsable lists, not just search targets.
             if selectedType.isClipboard {
                 results = ClipboardStore.shared.recent().map { SearchResult(clip: $0) }
                 isSearching = false
@@ -292,6 +309,10 @@ final class SearchEngine: ObservableObject {
                 results = []
                 isSearching = true
                 searchHistory(tokens: [], token: token)
+            } else if selectedType.isRecents {
+                results = []
+                isSearching = true
+                startRecentsQuery(tokens: [])
             } else {
                 results = []
                 isSearching = false
@@ -332,17 +353,24 @@ final class SearchEngine: ObservableObject {
             searchHistory(tokens: currentTokens, token: token)
             return
         }
+        if selectedType.isRecents {
+            needsFullDiskAccess = false
+            startRecentsQuery(tokens: currentTokens)
+            return
+        }
         needsFullDiskAccess = false
 
         let trees = selectedType.contentTypeTrees
 
         nameQuery.stop()
+        nameQuery.sortDescriptors = Self.defaultSortDescriptors
         nameQuery.predicate = namePredicate(tokens: currentTokens, trees: trees)
         nameQuery.start()
 
         contentQuery.stop()
         contentQueryActive = term.count >= contentMinQueryLength
         if contentQueryActive {
+            contentQuery.sortDescriptors = Self.defaultSortDescriptors
             contentQuery.predicate = contentPredicate(tokens: currentTokens, trees: trees)
             contentQuery.start()
         }
@@ -486,6 +514,62 @@ final class SearchEngine: ObservableObject {
         }
     }
 
+    // MARK: - Recents
+
+    /// How far back the Recents view reaches.
+    private let recentsWindowDays = 30.0
+
+    /// Start (or restart) the file-index queries behind the Recents view,
+    /// optionally narrowed by name tokens.
+    ///
+    /// Two passes are essential: a single query can only be *sorted* one way,
+    /// and we read a capped number of rows. Sorted by last-used, a freshly
+    /// saved image (opened by nothing yet, so its last-used date is nil) sinks
+    /// below thousands of older rows and never gets read - the exact way
+    /// Finder's Recents loses files. So the name query fetches recently
+    /// *opened* items (sorted by last-used) and the second query fetches
+    /// recently *added* items (sorted by date-added); the merge is ordered by
+    /// whichever touch was most recent.
+    private func startRecentsQuery(tokens: [String]) {
+        let cutoff = Date(timeIntervalSinceNow: -recentsWindowDays * 86_400) as NSDate
+        let nameFilter: NSPredicate? = tokens.isEmpty ? nil : namePredicate(tokens: tokens, trees: [])
+        func withNameFilter(_ p: NSPredicate) -> NSPredicate {
+            guard let nameFilter else { return p }
+            return NSCompoundPredicate(andPredicateWithSubpredicates: [nameFilter, p])
+        }
+
+        nameQuery.stop()
+        nameQuery.sortDescriptors = Self.defaultSortDescriptors
+        nameQuery.predicate = withNameFilter(
+            NSPredicate(format: "kMDItemLastUsedDate >= %@", cutoff))
+        nameQuery.start()
+
+        contentQuery.stop()
+        contentQuery.sortDescriptors = [
+            NSSortDescriptor(key: NSMetadataItemDateAddedKey, ascending: false)
+        ]
+        contentQuery.predicate = withNameFilter(
+            NSPredicate(format: "kMDItemDateAdded >= %@", cutoff))
+        contentQueryActive = true
+        contentQuery.start()
+    }
+
+    /// What belongs in Recents: the user's own documents. Excludes apps,
+    /// folders, anything outside the home directory, ~/Library internals,
+    /// hidden files, and dev noise - the junk that makes Finder's Recents
+    /// feel broken.
+    private func isRecentsEligible(_ r: SearchResult) -> Bool {
+        guard !r.isApp, !r.isFolder else { return false }
+        guard r.path.hasPrefix(homePath + "/") else { return false }
+        let relative = r.path.dropFirst(homePath.count)
+        if relative.hasPrefix("/Library/") { return false }
+        for component in relative.split(separator: "/") {
+            if component.hasPrefix(".") { return false }
+            if component == "node_modules" || component == "Caches" { return false }
+        }
+        return true
+    }
+
     /// Probe the protected databases once at launch. Attempting to open them
     /// registers Beacon with macOS's privacy system, so the app shows up
     /// (toggleable) in the Full Disk Access list without the user having to add
@@ -577,24 +661,46 @@ final class SearchEngine: ObservableObject {
 
         var merged: [String: SearchResult] = [:]
 
-        // Name matches first so they win on dedupe against content matches.
-        readResults(from: nameQuery, cap: nameReadCap, matchKind: .name, into: &merged)
-        if contentQueryActive {
-            readResults(from: contentQuery, cap: contentReadCap, matchKind: .content, into: &merged)
+        if selectedType.isRecents {
+            // Both queries are name-kind here: the second pass fetches
+            // recently *added* files, not text-content matches, so no
+            // "text match" badge applies.
+            readResults(from: nameQuery, cap: nameReadCap, matchKind: .name, into: &merged)
+            readResults(from: contentQuery, cap: nameReadCap, matchKind: .name, into: &merged)
+        } else {
+            // Name matches first so they win on dedupe against content matches.
+            readResults(from: nameQuery, cap: nameReadCap, matchKind: .name, into: &merged)
+            if contentQueryActive {
+                readResults(from: contentQuery, cap: contentReadCap, matchKind: .content, into: &merged)
+            }
         }
 
-        // Score once per result (folding is not free), then sort.
-        fileResults = merged.values
-            .map { (result: $0, score: score($0)) }
-            .sorted { a, b in
-                if a.score != b.score { return a.score < b.score }
-                let da = a.result.lastUsed ?? a.result.modified ?? .distantPast
-                let db = b.result.lastUsed ?? b.result.modified ?? .distantPast
-                if da != db { return da > db }
-                return a.result.name.localizedCaseInsensitiveCompare(b.result.name) == .orderedAscending
-            }
-            .prefix(displayCap)
-            .map(\.result)
+        if selectedType.isRecents {
+            // Recents is a timeline, not a ranked search: newest first, by
+            // whichever touch (opened / added / modified) is most recent.
+            fileResults = merged.values
+                .filter { isRecentsEligible($0) }
+                .sorted { a, b in
+                    let da = a.effectiveRecency, db = b.effectiveRecency
+                    if da != db { return da > db }
+                    return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+                }
+                .prefix(displayCap)
+                .map { $0 }
+        } else {
+            // Score once per result (folding is not free), then sort.
+            fileResults = merged.values
+                .map { (result: $0, score: score($0)) }
+                .sorted { a, b in
+                    if a.score != b.score { return a.score < b.score }
+                    let da = a.result.lastUsed ?? a.result.modified ?? .distantPast
+                    let db = b.result.lastUsed ?? b.result.modified ?? .distantPast
+                    if da != db { return da > db }
+                    return a.result.name.localizedCaseInsensitiveCompare(b.result.name) == .orderedAscending
+                }
+                .prefix(displayCap)
+                .map(\.result)
+        }
         publish()
 
         let bothDone = !nameQuery.isGathering
@@ -621,12 +727,14 @@ final class SearchEngine: ObservableObject {
             let size = item.value(forAttribute: NSMetadataItemFSSizeKey) as? Int64
             let modified = item.value(forAttribute: NSMetadataItemFSContentChangeDateKey) as? Date
             let lastUsed = item.value(forAttribute: NSMetadataItemLastUsedDateKey) as? Date
+            let dateAdded = item.value(forAttribute: NSMetadataItemDateAddedKey) as? Date
             let contentType = item.value(forAttribute: NSMetadataItemContentTypeTreeKey) as? [String] ?? []
             let isFolder = contentType.contains("public.folder")
             let isApp = contentType.contains("com.apple.application")
 
             merged[path] = SearchResult(id: path, name: name, path: path, kind: kind,
                                         size: size, modified: modified, lastUsed: lastUsed,
+                                        dateAdded: dateAdded,
                                         isFolder: isFolder, isApp: isApp, matchKind: matchKind)
         }
     }

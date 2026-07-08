@@ -165,6 +165,7 @@ struct SearchView: View {
 
     private var emptyTitle: String {
         switch engine.selectedType {
+        case .recents: return "Recent files"
         case .messages: return "Search your messages"
         case .notes: return "Search your notes"
         case .clipboard: return "Clipboard history"
@@ -175,6 +176,7 @@ struct SearchView: View {
 
     private var emptySubtitle: String {
         switch engine.selectedType {
+        case .recents: return "Files you've opened or added recently appear here. Type to filter them."
         case .messages: return "Type a word, phrase, or contact to search your iMessage & SMS history."
         case .notes: return "Type a word or phrase to search across all your Apple Notes."
         case .clipboard: return "Copied text will appear here. Anything you copy is searchable and ready to paste back."
@@ -234,7 +236,9 @@ struct SearchView: View {
                                 .padding(.top, index == 0 ? 2 : 10)
                                 .padding(.bottom, 2)
                         }
-                        ResultRow(result: result, isSelected: index == selectedIndex, tokens: highlightTokens)
+                        ResultRow(result: result, isSelected: index == selectedIndex,
+                                  tokens: highlightTokens,
+                                  showRecency: engine.selectedType == .recents)
                             .id(index)
                             .onTapGesture(count: 2) {
                                 selectedIndex = index

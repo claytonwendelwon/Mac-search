@@ -5,6 +5,7 @@ import Foundation
 /// any descendant type (e.g. PNG, JPEG -> public.image) just works.
 enum FileType: String, CaseIterable, Identifiable {
     case all
+    case recents
     case apps
     case messages
     case notes
@@ -18,6 +19,10 @@ enum FileType: String, CaseIterable, Identifiable {
     case videos
 
     var id: String { rawValue }
+
+    /// Recents is a recency-ordered view of the file index: recently opened or
+    /// added documents, browsable with an empty query and filterable by name.
+    var isRecents: Bool { self == .recents }
 
     /// Messages are searched from the Messages database, not the file index.
     var isMessages: Bool { self == .messages }
@@ -43,7 +48,7 @@ enum FileType: String, CaseIterable, Identifiable {
     /// own chips (and `all` itself isn't marked).
     var includedInAll: Bool {
         switch self {
-        case .all, .clipboard, .history: return false
+        case .all, .recents, .clipboard, .history: return false
         default: return true
         }
     }
@@ -57,6 +62,7 @@ enum FileType: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .all: return "All"
+        case .recents: return "Recents"
         case .apps: return "Apps"
         case .photos: return "Photos"
         case .videos: return "Videos"
@@ -75,6 +81,7 @@ enum FileType: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .all: return "square.grid.2x2"
+        case .recents: return "clock"
         case .apps: return "app.badge"
         case .photos: return "photo"
         case .videos: return "film"
@@ -94,6 +101,8 @@ enum FileType: String, CaseIterable, Identifiable {
         switch self {
         case .all:
             return []
+        case .recents:
+            return [] // no type restriction; the recency window does the filtering
         case .apps:
             return ["com.apple.application"]
         case .photos:

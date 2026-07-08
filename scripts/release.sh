@@ -174,6 +174,10 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
 - **Unified "All" search** - the All tab blends files & apps, messages, and
   notes into one grouped, ranked list. Chips included in All show a small dot;
   Clipboard and History are opt-in via their own chips.
+- **Recents that actually works** - the **Recents** filter shows files you've
+  opened, saved, or added recently, including fresh images/videos/downloads,
+  while filtering out app internals, caches, folders, and other Finder noise.
+  Type to narrow within the recent-files timeline.
 - **Clipboard history** - everything you copy is captured locally and
   searchable under the **Clipboard** filter. **Return** copies it back, ready
   to paste. Private/transient copies (password managers) are skipped.
@@ -184,22 +188,17 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
   exact note.
 
 ## What's new in $VERSION
-- **One-click install.** Open the DMG and double-click Beacon - it moves
-  itself into Applications and relaunches, ready to use. A first-run banner
-  teaches the Option + S hotkey.
-- **A real app icon.** Beacon now has its own icon in Finder, the Full Disk
-  Access list, and everywhere else.
-- **Smarter results.** Exact-name matches now win even with a file extension
-  ("report" puts report.pdf on top), multi-word queries match at word
-  boundaries ("chase stat" finds "Chase Statement.pdf"), and apps rank first
-  when you type their name - launcher style.
-- **Search Messages by contact.** Typing "Mom" surfaces Mom's conversation,
-  not just texts containing the word "mom".
-- **Accent-insensitive everywhere.** "jose" finds "José" across files,
-  messages, notes, clipboard, and history.
-- **Better browser-history ranking.** Frequently-visited pages now outrank
-  one-off visits (match quality + frecency instead of pure recency).
-- Faster keystroke-to-result time on large Messages/Notes libraries.
+- **New Recents filter.** A clean recent-files timeline sits next to All. It
+  shows files you've opened, saved, or added in the last 30 days and keeps the
+  newest touch (opened / added / modified) at the top.
+- **Fresh saves show up.** Recents now runs separate "recently opened" and
+  "recently added" Spotlight passes, so a brand-new image, video, screenshot,
+  or download appears immediately even before you've opened it.
+- **Finder noise filtered out.** Recents excludes apps, folders, hidden files,
+  ~/Library internals, caches, and node_modules so the list stays focused on
+  user files instead of app-specific junk.
+- **Type within Recents.** The Recents tab is browsable with an empty query,
+  and typing narrows by filename while preserving the recency timeline.
 
 Upgrading from an earlier version? Just replace the app in Applications -
 your Full Disk Access setting carries over. Clipboard history starts recording

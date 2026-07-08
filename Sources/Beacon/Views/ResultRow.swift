@@ -5,6 +5,9 @@ struct ResultRow: View {
     let result: SearchResult
     let isSelected: Bool
     var tokens: [String] = []
+    /// In the Recents view, show *when* the file was last used instead of
+    /// kind/size - recency is the whole point there.
+    var showRecency: Bool = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -93,6 +96,9 @@ struct ResultRow: View {
             || result.source == .clipboard || result.source == .history {
             guard let date = result.modified else { return nil }
             return Self.relativeDate.localizedString(for: date, relativeTo: Date())
+        }
+        if showRecency, result.effectiveRecency != .distantPast {
+            return Self.relativeDate.localizedString(for: result.effectiveRecency, relativeTo: Date())
         }
         var parts: [String] = []
         if !result.kind.isEmpty { parts.append(result.kind) }

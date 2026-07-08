@@ -17,6 +17,9 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
 - Searches by name **and by text inside documents** (PDFs, text, Office/iWork,
   etc.); content matches are flagged with a "text match" badge and kick in
   once the query is 3+ characters (name search is instant from the first).
+- **Recents** filter: a clean Finder-style timeline of files you've opened,
+  saved, or added recently (including fresh images/videos/downloads), with app
+  internals and cache junk filtered out. Type to narrow within recent files.
 - All matching is case- and accent-insensitive across every source
   ("jose" finds "José" in files, messages, notes, and history alike).
 - **Search your text messages** (iMessage & SMS) under the Messages filter:
@@ -30,8 +33,8 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
   every note (title + body), with the matched word shown and bolded; `return`
   opens Notes. (Uses the same Full Disk Access as Messages.)
 - Matched words are **bolded** in result titles and message/note snippets.
-- Type filters: All, Apps, Messages, Notes, Docs, PDFs, Audio, Folders,
-  Photos, Videos.
+- Type filters: All, Recents, Apps, Messages, Notes, Docs, PDFs, Audio,
+  Folders, Photos, Videos.
 - Fully keyboard-driven (no mouse needed).
 - Quick Look previews, reveal in Finder, copy path.
 - Native Swift/SwiftUI, zero third-party dependencies.
