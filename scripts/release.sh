@@ -196,7 +196,7 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
   previews in file rows instead of generic icons.
 - **History favicons.** Browser-history rows load site icons directly from the
   visited site (no third-party favicon service), with better fallbacks for
-  sites that don't expose `/favicon.ico`.
+  sites that don't expose their standard favicon.
 - **Downloaded apps show up.** Apps are scanned directly from application
   folders, so third-party/external installs like Chrome, Claude, Cursor, and
   Discord show in Apps and All.
