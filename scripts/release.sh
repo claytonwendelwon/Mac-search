@@ -190,6 +190,13 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
   exact note.
 
 ## What's new in $VERSION
+- **Better intent ranking.** Beacon now favors exact phrase and standalone-word
+  matches across Messages, Notes, History, Clipboard, Apps, Recents, Settings,
+  and file names, so \`main\` beats \`maintain\` and \`IG\` beats random
+  substrings.
+- **Expanded Settings shortcuts.** The Settings filter now includes direct
+  matches for Storage, Network, Login Items, Passwords, Touch ID & Password,
+  Software Update, Date & Time, and more relevant keyword ranking.
 - **Recents is now filesystem-backed.** Fresh Safari saves, screenshots, and
   downloads show up immediately without relying on Spotlight/Finder Recents.
 - **File thumbnails.** Images, PDFs, videos, and many docs now show Quick Look
