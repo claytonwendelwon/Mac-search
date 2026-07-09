@@ -73,29 +73,17 @@ final class BrowserHistoryStore {
         guard state == .ready else { return [] }
         guard !tokens.isEmpty else { return Array(cache.prefix(limit)) }
 
-        var scored: [(entry: HistoryEntry, quality: Int, frecency: Double)] = []
+        var scored: [(entry: HistoryEntry, quality: SearchText.MatchQuality, frecency: Double)] = []
         for (index, entry) in cache.enumerated() {
             if index & 0x3FF == 0, isCancelled?() == true { return [] }
-            var quality = 0
-            var matched = true
-            for token in tokens {
-                if SearchText.hasWordStart(entry.foldedTitle, token) {
-                    quality += 3        // token starts a word in the title
-                } else if entry.foldedTitle.contains(token) {
-                    quality += 2        // token somewhere in the title
-                } else if entry.foldedURL.contains(token) {
-                    quality += 1        // URL-only match
-                } else {
-                    matched = false
-                    break
-                }
-            }
-            guard matched else { continue }
+            let titleQuality = SearchText.matchQuality(entry.foldedTitle, tokens: tokens)
+            let urlQuality = SearchText.matchQuality(entry.foldedURL, tokens: tokens)
+            guard let quality = [titleQuality, urlQuality].compactMap({ $0 }).min() else { continue }
             scored.append((entry, quality, Self.frecency(entry)))
         }
 
         scored.sort { a, b in
-            if a.quality != b.quality { return a.quality > b.quality }
+            if a.quality != b.quality { return a.quality < b.quality }
             if a.frecency != b.frecency { return a.frecency > b.frecency }
             return a.entry.lastVisit > b.entry.lastVisit
         }

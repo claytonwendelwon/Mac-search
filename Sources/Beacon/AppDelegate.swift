@@ -47,9 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.image = NSImage(systemSymbolName: "magnifyingglass",
-                                   accessibilityDescription: "Beacon Search")
-            button.image?.isTemplate = true
+            button.image = BeaconMenuIcon.make()
+            button.imagePosition = .imageOnly
             button.toolTip = "Beacon - click to search (⌥S)"
             // Left-click opens the search bar; right-click shows the menu.
             button.target = self

@@ -12,6 +12,7 @@ struct RecentFileRecord {
     let isFolder: Bool
     let isApp: Bool
     let recency: Date
+    let matchQuality: SearchText.MatchQuality
 }
 
 /// A deterministic Recents backend that does not rely on Spotlight/Finder's
@@ -77,7 +78,8 @@ final class RecentsStore {
                 guard values.isPackage != true else { continue }
 
                 let foldedName = name.searchFolded
-                if !tokens.isEmpty, !tokens.allSatisfy({ foldedName.contains($0) }) { continue }
+                let matchQuality = SearchText.matchQuality(foldedName, tokens: tokens)
+                if !tokens.isEmpty, matchQuality == nil { continue }
 
                 let modified = values.contentModificationDate
                 let added = values.addedToDirectoryDate
@@ -95,13 +97,17 @@ final class RecentsStore {
                     dateAdded: added ?? created,
                     isFolder: false,
                     isApp: type?.conforms(to: .applicationBundle) == true,
-                    recency: recency
+                    recency: recency,
+                    matchQuality: matchQuality ?? .substring
                 ))
             }
         }
 
         let results = out
             .sorted {
+                if $0.matchQuality != $1.matchQuality {
+                    return $0.matchQuality < $1.matchQuality
+                }
                 if $0.recency != $1.recency { return $0.recency > $1.recency }
                 return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }

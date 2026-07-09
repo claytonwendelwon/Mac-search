@@ -22,7 +22,7 @@ final class AppStore {
         guard !tokens.isEmpty else { return Array(apps.prefix(limit)) }
 
         return apps
-            .filter { app in tokens.allSatisfy { app.foldedName.contains($0) } }
+            .filter { app in SearchText.matchQuality(app.foldedName, tokens: tokens) != nil }
             .sorted { a, b in
                 let sa = score(a, tokens: tokens)
                 let sb = score(b, tokens: tokens)
@@ -105,8 +105,12 @@ final class AppStore {
         let query = tokens.joined(separator: " ")
         if app.foldedName == query { return 0 }
         if app.foldedName.hasPrefix(query) { return 50 }
-        if tokens.allSatisfy({ SearchText.hasWordStart(app.foldedName, $0) }) { return 100 }
-        return 200
+        switch SearchText.matchQuality(app.foldedName, tokens: tokens) {
+        case .exactPhrase, .wholeWords: return 100
+        case .wordStarts: return 150
+        case .substring: return 200
+        case nil: return 300
+        }
     }
 
     private func isSystemApp(_ path: String) -> Bool {

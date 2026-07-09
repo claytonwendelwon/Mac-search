@@ -18,6 +18,9 @@ final class SettingsStore {
         SettingRecord(id: "wifi", title: "Wi-Fi", subtitle: "Networks and wireless settings",
                       url: "x-apple.systempreferences:com.apple.wifi-settings-extension",
                       symbol: "wifi", keywords: "internet network wireless router"),
+        SettingRecord(id: "network", title: "Network", subtitle: "Ethernet, VPN, DNS, and network services",
+                      url: "x-apple.systempreferences:com.apple.Network-Settings.extension",
+                      symbol: "network", keywords: "internet ethernet vpn dns tcp ip proxy"),
         SettingRecord(id: "bluetooth", title: "Bluetooth", subtitle: "Devices and accessories",
                       url: "x-apple.systempreferences:com.apple.BluetoothSettings",
                       symbol: "bluetooth", keywords: "airpods mouse keyboard devices"),
@@ -51,6 +54,9 @@ final class SettingsStore {
         SettingRecord(id: "full-disk-access", title: "Full Disk Access", subtitle: "Allow apps to access protected files",
                       url: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
                       symbol: "externaldrive.badge.checkmark", keywords: "privacy security permissions files beacon messages notes"),
+        SettingRecord(id: "storage", title: "Storage", subtitle: "Mac storage, recommendations, and disk usage",
+                      url: "x-apple.systempreferences:com.apple.settings.Storage",
+                      symbol: "internaldrive", keywords: "disk space drive documents applications system data"),
         SettingRecord(id: "battery", title: "Battery", subtitle: "Power, charging, and low power mode",
                       url: "x-apple.systempreferences:com.apple.Battery-Settings.extension",
                       symbol: "battery.75", keywords: "power energy charging low power"),
@@ -69,9 +75,24 @@ final class SettingsStore {
         SettingRecord(id: "users", title: "Users & Groups", subtitle: "Accounts, login items, and passwords",
                       url: "x-apple.systempreferences:com.apple.Users-Groups-Settings.extension",
                       symbol: "person.2", keywords: "account user login items startup admin"),
+        SettingRecord(id: "login-items", title: "Login Items", subtitle: "Apps that open at login and background items",
+                      url: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
+                      symbol: "rectangle.stack.badge.play", keywords: "startup launch background allow in background"),
+        SettingRecord(id: "passwords", title: "Passwords", subtitle: "Saved passwords, passkeys, and verification codes",
+                      url: "x-apple.systempreferences:com.apple.Passwords-Settings.extension",
+                      symbol: "key", keywords: "passkeys keychain codes autofill"),
+        SettingRecord(id: "touch-id", title: "Touch ID & Password", subtitle: "Fingerprint unlock and password settings",
+                      url: "x-apple.systempreferences:com.apple.Touch-ID-Settings.extension",
+                      symbol: "touchid", keywords: "fingerprint unlock security password"),
         SettingRecord(id: "icloud", title: "Apple ID / iCloud", subtitle: "iCloud, media, purchases, and account",
                       url: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings",
                       symbol: "icloud", keywords: "apple id icloud account storage media purchases"),
+        SettingRecord(id: "software-update", title: "Software Update", subtitle: "macOS updates and automatic updates",
+                      url: "x-apple.systempreferences:com.apple.Software-Update-Settings.extension",
+                      symbol: "arrow.triangle.2.circlepath", keywords: "update upgrade macos system"),
+        SettingRecord(id: "date-time", title: "Date & Time", subtitle: "Clock, time zone, and calendar settings",
+                      url: "x-apple.systempreferences:com.apple.Date-Time-Settings.extension",
+                      symbol: "calendar.badge.clock", keywords: "clock timezone time zone calendar"),
         SettingRecord(id: "general", title: "General", subtitle: "Software Update, storage, date, and language",
                       url: "x-apple.systempreferences:com.apple.SystemProfiler.AboutExtension",
                       symbol: "gearshape", keywords: "about software update storage date time language transfer reset")
@@ -96,7 +117,17 @@ final class SettingsStore {
         let title = record.title.searchFolded
         if title == query { return 0 }
         if title.hasPrefix(query) { return 50 }
-        if tokens.allSatisfy({ SearchText.hasWordStart(title, $0) }) { return 100 }
-        return 200
+        switch SearchText.matchQuality(title, tokens: tokens) {
+        case .exactPhrase, .wholeWords: return 100
+        case .wordStarts: return 150
+        case .substring: return 200
+        case nil:
+            switch SearchText.matchQuality(record.folded, tokens: tokens) {
+            case .exactPhrase, .wholeWords: return 250
+            case .wordStarts: return 300
+            case .substring: return 350
+            case nil: return 400
+            }
+        }
     }
 }

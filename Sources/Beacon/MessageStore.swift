@@ -70,28 +70,36 @@ final class MessageStore {
             Log.write("MessageStore: search skipped (state=\(state), tokens=\(tokens))")
             return []
         }
-        var out: [MessageRecord] = []
-        out.reserveCapacity(limit)
+        var out: [(record: MessageRecord, quality: SearchText.MatchQuality)] = []
         for (index, rec) in cache.enumerated() {   // already sorted newest-first
             if index & 0x3FF == 0, isCancelled?() == true {
                 Log.write("MessageStore: search cancelled at row \(index) tokens=\(tokens)")
-                return out
+                return out.map(\.record)
             }
             // Fast path: match on the precomputed text+handle haystack first;
             // only fall back to the contact-name lookup when the text misses.
-            let hit = tokens.allSatisfy { token in
-                if rec.folded.contains(token) { return true }
-                guard let nameResolver,
-                      let name = foldedName(for: rec.handle, resolve: nameResolver) else { return false }
-                return name.contains(token)
+            let textQuality = SearchText.matchQuality(rec.folded, tokens: tokens)
+            let nameQuality: SearchText.MatchQuality?
+            if let nameResolver,
+               let name = foldedName(for: rec.handle, resolve: nameResolver) {
+                nameQuality = SearchText.matchQuality(name, tokens: tokens)
+            } else {
+                nameQuality = nil
             }
-            if hit {
-                out.append(rec)
-                if out.count >= limit { break }
+            let quality = [textQuality, nameQuality].compactMap { $0 }.min()
+            if let quality {
+                out.append((rec, quality))
             }
         }
-        Log.write("MessageStore: search tokens=\(tokens) cache=\(cache.count) matched=\(out.count)")
-        return out
+        let results = out
+            .sorted {
+                if $0.quality != $1.quality { return $0.quality < $1.quality }
+                return $0.record.date > $1.record.date
+            }
+            .prefix(limit)
+            .map(\.record)
+        Log.write("MessageStore: search tokens=\(tokens) cache=\(cache.count) matched=\(out.count) returned=\(results.count)")
+        return results
     }
 
     /// Folded contact names, cached per handle. Only consulted once the

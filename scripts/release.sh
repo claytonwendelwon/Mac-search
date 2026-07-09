@@ -203,6 +203,11 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
 - **System Settings filter.** A new last filter jumps directly to common
   System Settings panes like Wi-Fi, Privacy, Full Disk Access, Displays,
   Keyboard, Battery, and more.
+- **Custom menu-bar icon.** Beacon now uses a small template Beacon lens mark
+  in the menu bar instead of Apple's generic search glyph.
+- **Expanded GitHub docs.** The README now explains what Beacon can do, why it
+  avoids Spotlight/Finder's common failure modes, and how the local scanners
+  work.
 
 Upgrading from an earlier version? Just replace the app in Applications -
 your Full Disk Access setting carries over. Clipboard history starts recording

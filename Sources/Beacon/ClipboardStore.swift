@@ -62,11 +62,18 @@ final class ClipboardStore {
     func search(tokens: [String], limit: Int = 200) -> [ClipEntry] {
         lock.lock(); defer { lock.unlock() }
         guard !tokens.isEmpty else { return Array(entries.prefix(limit)) }
-        let matches = entries.filter { entry in
+        let matches = entries.compactMap { entry -> (entry: ClipEntry, quality: SearchText.MatchQuality)? in
             let hay = folded[entry.id] ?? entry.text.searchFolded
-            return tokens.allSatisfy { hay.contains($0) }
+            guard let quality = SearchText.matchQuality(hay, tokens: tokens) else { return nil }
+            return (entry, quality)
         }
-        return Array(matches.prefix(limit))
+        return matches
+            .sorted {
+                if $0.quality != $1.quality { return $0.quality < $1.quality }
+                return $0.entry.date > $1.entry.date
+            }
+            .prefix(limit)
+            .map(\.entry)
     }
 
     func recent(limit: Int = 200) -> [ClipEntry] {

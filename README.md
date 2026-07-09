@@ -1,13 +1,15 @@
 # Beacon
 
-A fast, native macOS search launcher. Press a hotkey anywhere, type, and
-instantly find any file, app, photo, video, or document on your Mac, then open
-it with a keystroke.
+A fast, native macOS search launcher. Press a hotkey anywhere, type, and find
+the thing you were actually looking for: a file, app, recent download, image,
+PDF, note, message, browser-history page, or System Settings pane.
 
-Beacon taps directly into the system Spotlight index (`NSMetadataQuery`), so
-results are instant and there's no separate disk crawl to wait on. It's a
-lightweight menu-bar app with a keyboard-driven overlay, in the spirit of
-Spotlight / Raycast / Alfred, but tuned for finding files.
+Beacon is a lightweight menu-bar app with a keyboard-driven overlay, in the
+spirit of Spotlight / Raycast / Alfred, but tuned for local, high-signal Mac
+search. It uses the system Spotlight index where it is strong (file name and
+document-content search), then fills the gaps with direct local scanners for the
+places Apple's tools often miss: Recents, installed apps, Messages, Notes,
+Clipboard, browser history, and System Settings shortcuts.
 
 ## Features
 
@@ -18,10 +20,13 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
   etc.); content matches are flagged with a "text match" badge and kick in
   once the query is 3+ characters (name search is instant from the first).
 - **Recents** filter: a clean Finder-style timeline of files you've opened,
-  saved, or added recently (including fresh images/videos/downloads), with app
-  internals and cache junk filtered out. Type to narrow within recent files.
+  saved, or added recently (including fresh images/videos/downloads), powered by
+  Beacon's own filesystem scanner so it is not blocked by Finder/Spotlight
+  recency quirks. Type to narrow within recent files.
 - File rows show Quick Look thumbnails, and History rows show site favicons
   where available.
+- Apps are scanned directly from application folders, so downloaded/third-party
+  apps show up even when Spotlight misses them.
 - **System Settings** filter: jump straight to Wi-Fi, Displays, Privacy,
   Full Disk Access, Keyboard, Battery, and other settings panes.
 - All matching is case- and accent-insensitive across every source
@@ -55,6 +60,43 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
 The app is signed with a Developer ID and notarized by Apple, so it opens
 without security warnings.
 
+## Why Beacon?
+
+macOS already has Spotlight and Finder search, but both have sharp edges when
+you are trying to find local things quickly.
+
+**Spotlight became a cluttered kitchen.** It started as a fast file finder, then
+grew into a universal assistant. Searching for a PDF or app can mix local files
+with web suggestions, Siri knowledge, dictionary cards, Maps results, and other
+noise. Results can also shift while you type, so pressing Return quickly can
+open the wrong thing.
+
+**Spotlight depends on a hidden index.** When that index lags or corrupts,
+Spotlight may miss a file sitting on your Desktop. Fixing it usually means
+finding the right System Settings panel, excluding/re-including folders, or
+waiting for a rebuild.
+
+**Finder search is unpredictable.** Finder often searches "This Mac" when you
+expected the current folder, hides package/system internals, and its Recents
+view is especially confusing: a newly downloaded or exported file can be missing
+because it has not been opened yet.
+
+Beacon's answer is not "replace everything with one giant assistant." It keeps
+the launcher small and local:
+
+- `All` gives a blended, ranked view of files, apps, messages, and notes.
+- `Recents` is built from the filesystem so fresh downloads, images, exports,
+  and screenshots appear immediately.
+- `Apps` scans `.app` bundles directly, including downloaded apps outside
+  Apple's built-in set.
+- `Messages`, `Notes`, `Clipboard`, and `History` each have focused filters, so
+  those sources do not drown out file search.
+- `Settings` jumps straight to common System Settings panes.
+
+Beacon does **not** search cloud-only files that have not been downloaded to the
+Mac yet. If a provider keeps a file only in the cloud and does not expose it on
+disk, Beacon will not see it until it exists locally.
+
 ## Requirements (to build from source)
 
 - macOS 13 or newer.
@@ -69,8 +111,8 @@ bash scripts/run.sh
 ```
 
 This builds the app, assembles `Beacon.app`, ad-hoc signs it, quits any running
-copy, and launches the new build. Look for the magnifying-glass icon in your
-menu bar.
+copy, and launches the new build. Look for the Beacon lens icon in your menu
+bar.
 
 To build a debug variant, set `CONFIG=debug bash scripts/run.sh`.
 
@@ -122,25 +164,29 @@ The first time you search Messages, macOS also asks for **Contacts** access —
 allow it to see sender names instead of raw phone numbers. If you decline,
 message search still works; it just shows the number/email.
 
-## How it works
+## How It Works
 
 ```
 Hotkey / menu bar  ->  floating NSPanel  ->  SwiftUI SearchView
                                                    |
-                                          SearchEngine (NSMetadataQuery)
+                                               SearchEngine
                                                    |
-                                            Spotlight index
+      Spotlight file search + local stores/scanners (Recents, Apps, Messages,
+      Notes, Clipboard, History, Settings)
 ```
 
 - `Sources/Beacon/HotKey.swift` registers the global hotkey via the Carbon
   Hot Key API (no Accessibility permission required).
 - `Sources/Beacon/SearchPanel.swift` is a borderless, floating, non-activating
   panel that hosts the SwiftUI UI.
-- `Sources/Beacon/SearchEngine.swift` builds the Spotlight predicate
-  (name tokens + `kMDItemContentTypeTree` filter), runs a debounced live query,
-  and publishes sorted, capped results.
-- `Sources/Beacon/FileType.swift` maps each filter chip to Uniform Type
-  Identifiers.
+- `Sources/Beacon/SearchEngine.swift` coordinates all sources, cancels stale
+  work as the user types, merges the "All" view, and publishes ranked results.
+- `Sources/Beacon/FileType.swift` defines the filter chips and which source
+  backs each chip.
+- `Sources/Beacon/RecentsStore.swift` scans visible user folders directly so
+  newly saved/downloaded files show up without waiting on Spotlight Recents.
+- `Sources/Beacon/AppStore.swift` scans installed `.app` bundles in
+  `/Applications`, `~/Applications`, and system app folders.
 - `Sources/Beacon/MessageStore.swift` powers the Messages filter: it opens the
   Messages SQLite database read-only, decodes message text (including the binary
   `attributedBody` blobs newer macOS uses), caches recent messages in memory,
@@ -148,10 +194,18 @@ Hotkey / menu bar  ->  floating NSPanel  ->  SwiftUI SearchView
 - `Sources/Beacon/NotesStore.swift` powers the Notes filter: it opens the Apple
   Notes SQLite database read-only and decodes each note body (gzip-compressed
   protobuf) to enable full-text search across your notes.
+- `Sources/Beacon/BrowserHistoryStore.swift` reads Safari and Chromium history
+  databases; `Sources/Beacon/FaviconStore.swift` loads same-site favicons for
+  history rows.
+- `Sources/Beacon/ThumbnailStore.swift` uses Quick Look thumbnails for file
+  previews in Recents and file search.
+- `Sources/Beacon/SettingsStore.swift` maps common System Settings panes to
+  searchable deep links.
 
-## Roadmap (distribution)
+## Roadmap
 
 - Settings UI with a customizable hotkey recorder and result limits.
-- Developer ID signing + notarization, packaged as a `.dmg`.
-- Optional content-aware search (text inside documents/PDFs, on-device photo
-  recognition).
+- Optional cloud-provider integrations for files that are visible remotely but
+  not downloaded locally.
+- Richer content snippets for text matches inside PDFs/documents.
+- Optional on-device photo recognition.

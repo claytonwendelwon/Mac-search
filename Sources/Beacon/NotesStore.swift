@@ -54,16 +54,22 @@ final class NotesStore {
             Log.write("NotesStore: search skipped (state=\(state))")
             return []
         }
-        var out: [NoteRecord] = []
+        var out: [(record: NoteRecord, quality: SearchText.MatchQuality)] = []
         for (index, rec) in cache.enumerated() {  // newest-first
-            if index & 0xFF == 0, isCancelled?() == true { return out }
-            if tokens.allSatisfy({ rec.folded.contains($0) }) {
-                out.append(rec)
-                if out.count >= limit { break }
+            if index & 0xFF == 0, isCancelled?() == true { return out.map(\.record) }
+            if let quality = SearchText.matchQuality(rec.folded, tokens: tokens) {
+                out.append((rec, quality))
             }
         }
-        Log.write("NotesStore: search tokens=\(tokens) cache=\(cache.count) matched=\(out.count)")
-        return out
+        let results = out
+            .sorted {
+                if $0.quality != $1.quality { return $0.quality < $1.quality }
+                return $0.record.modified > $1.record.modified
+            }
+            .prefix(limit)
+            .map(\.record)
+        Log.write("NotesStore: search tokens=\(tokens) cache=\(cache.count) matched=\(out.count) returned=\(results.count)")
+        return results
     }
 
     // MARK: - Loading

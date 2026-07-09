@@ -885,7 +885,8 @@ final class SearchEngine: ObservableObject {
     ///   0   exact name — with or without the extension, so "report" exact-
     ///       matches "report.pdf", the way a launcher is expected to
     ///   100 name starts with the whole query ("saf" -> Safari)
-    ///   200 every token starts a word in the name ("chase stat" ->
+    ///   200 every token is a whole word in the name ("main" beats "maintain")
+    ///   250 every token starts a word in the name ("chase stat" ->
     ///       "Chase Statement.pdf")
     ///   300 every token appears somewhere in the name
     ///   400 matched only on the path / on-disk name
@@ -903,8 +904,10 @@ final class SearchEngine: ObservableObject {
             base = 0
         } else if name.hasPrefix(query) || stem.hasPrefix(query) {
             base = 100
-        } else if currentTokens.allSatisfy({ SearchText.hasWordStart(name, $0) }) {
+        } else if currentTokens.allSatisfy({ SearchText.hasWholeWord(name, $0) }) {
             base = 200
+        } else if currentTokens.allSatisfy({ SearchText.hasWordStart(name, $0) }) {
+            base = 250
         } else if currentTokens.allSatisfy({ name.contains($0) }) {
             base = 300
         } else {
