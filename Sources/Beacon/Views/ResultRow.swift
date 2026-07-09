@@ -8,12 +8,12 @@ struct ResultRow: View {
     /// In the Recents view, show *when* the file was last used instead of
     /// kind/size - recency is the whole point there.
     var showRecency: Bool = false
+    @ObservedObject private var thumbnails = ThumbnailStore.shared
+    @ObservedObject private var favicons = FaviconStore.shared
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(nsImage: result.icon)
-                .resizable()
-                .frame(width: 28, height: 28)
+            thumbnailView
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
@@ -55,6 +55,26 @@ struct ResultRow: View {
         .contentShape(Rectangle())
     }
 
+    private var thumbnailView: some View {
+        let isFile = result.source == .file
+        let isHistory = result.source == .history
+        let image = isFile ? thumbnails.image(for: result)
+            : isHistory ? favicons.image(for: result)
+            : result.icon
+        let isPreview = isFile || isHistory
+        return Image(nsImage: image)
+            .resizable()
+            .aspectRatio(contentMode: isPreview ? .fill : .fit)
+            .frame(width: isPreview ? 36 : 28, height: isPreview ? 36 : 28)
+            .clipShape(RoundedRectangle(cornerRadius: isPreview ? 6 : 0, style: .continuous))
+            .overlay {
+                if isPreview {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                }
+            }
+    }
+
     /// Title with matched tokens bolded. The contact/file name is the title.
     private var titleText: AttributedString {
         Highlight.attributed(result.name, tokens: tokens,
@@ -76,6 +96,11 @@ struct ResultRow: View {
             let url = Highlight.snippet(result.messageBody ?? "", tokens: tokens, maxLength: 90)
             let prefix = result.kind.isEmpty ? "" : "\(result.kind) · "
             return Highlight.attributed(prefix + url, tokens: tokens,
+                                        base: .system(size: 11),
+                                        strong: .system(size: 11, weight: .semibold))
+        }
+        if result.source == .settings {
+            return Highlight.attributed(result.messageBody ?? "System Settings", tokens: tokens,
                                         base: .system(size: 11),
                                         strong: .system(size: 11, weight: .semibold))
         }

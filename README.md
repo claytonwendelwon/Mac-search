@@ -20,6 +20,10 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
 - **Recents** filter: a clean Finder-style timeline of files you've opened,
   saved, or added recently (including fresh images/videos/downloads), with app
   internals and cache junk filtered out. Type to narrow within recent files.
+- File rows show Quick Look thumbnails, and History rows show site favicons
+  where available.
+- **System Settings** filter: jump straight to Wi-Fi, Displays, Privacy,
+  Full Disk Access, Keyboard, Battery, and other settings panes.
 - All matching is case- and accent-insensitive across every source
   ("jose" finds "José" in files, messages, notes, and history alike).
 - **Search your text messages** (iMessage & SMS) under the Messages filter:
@@ -33,8 +37,8 @@ Spotlight / Raycast / Alfred, but tuned for finding files.
   every note (title + body), with the matched word shown and bolded; `return`
   opens Notes. (Uses the same Full Disk Access as Messages.)
 - Matched words are **bolded** in result titles and message/note snippets.
-- Type filters: All, Recents, Apps, Messages, Notes, Docs, PDFs, Audio,
-  Folders, Photos, Videos.
+- Type filters: All, Recents, Apps, Messages, Notes, History, Docs, PDFs,
+  Audio, Folders, Photos, Videos, Clipboard, Settings.
 - Fully keyboard-driven (no mouse needed).
 - Quick Look previews, reveal in Finder, copy path.
 - Native Swift/SwiftUI, zero third-party dependencies.

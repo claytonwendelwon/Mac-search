@@ -16,6 +16,7 @@ enum ResultSource {
     case note
     case clipboard
     case history
+    case settings
 }
 
 /// One row in the results list, from either the Spotlight index or Messages.
@@ -66,6 +67,10 @@ struct SearchResult: Identifiable, Hashable {
             let symbol = NSImage(systemSymbolName: "globe",
                                  accessibilityDescription: "Web history")
             return symbol ?? NSImage()
+        case .settings:
+            let symbol = NSImage(systemSymbolName: kind,
+                                 accessibilityDescription: "System Settings")
+            return symbol ?? NSWorkspace.shared.icon(forFile: "/System/Applications/System Settings.app")
         }
     }
 
@@ -86,6 +91,46 @@ struct SearchResult: Identifiable, Hashable {
         self.isFolder = isFolder; self.isApp = isApp
         self.matchKind = matchKind
         self.messageBody = nil; self.messageHandle = nil; self.messageFromMe = false
+        self.noteID = nil
+    }
+
+    /// Filesystem-backed Recents result.
+    init(recent r: RecentFileRecord) {
+        self.id = r.path
+        self.source = .file
+        self.name = r.name
+        self.path = r.path
+        self.kind = r.kind
+        self.size = r.size
+        self.modified = r.modified
+        self.lastUsed = r.recency
+        self.dateAdded = r.dateAdded
+        self.isFolder = r.isFolder
+        self.isApp = r.isApp
+        self.matchKind = .name
+        self.messageBody = nil
+        self.messageHandle = nil
+        self.messageFromMe = false
+        self.noteID = nil
+    }
+
+    /// Installed app result.
+    init(app a: AppRecord) {
+        self.id = a.path
+        self.source = .file
+        self.name = a.name
+        self.path = a.path
+        self.kind = "Application"
+        self.size = nil
+        self.modified = a.modified
+        self.lastUsed = nil
+        self.dateAdded = nil
+        self.isFolder = false
+        self.isApp = true
+        self.matchKind = .name
+        self.messageBody = nil
+        self.messageHandle = nil
+        self.messageFromMe = false
         self.noteID = nil
     }
 
@@ -174,6 +219,26 @@ struct SearchResult: Identifiable, Hashable {
         self.messageFromMe = false
         self.noteID = nil
     }
+
+    /// System Settings result.
+    init(setting s: SettingRecord) {
+        self.id = "setting:\(s.id)"
+        self.source = .settings
+        self.name = s.title
+        self.path = s.url
+        self.kind = s.symbol
+        self.size = nil
+        self.modified = nil
+        self.lastUsed = nil
+        self.dateAdded = nil
+        self.isFolder = false
+        self.isApp = false
+        self.matchKind = .name
+        self.messageBody = s.subtitle
+        self.messageHandle = nil
+        self.messageFromMe = false
+        self.noteID = nil
+    }
 }
 
 /// Wraps the Spotlight index via two `NSMetadataQuery` passes:
@@ -222,8 +287,12 @@ final class SearchEngine: ObservableObject {
     private let messageStore = MessageStore()
     private let notesStore = NotesStore()
     private let historyStore = BrowserHistoryStore()
+    private let recentsStore = RecentsStore()
+    private let appStore = AppStore()
+    private let settingsStore = SettingsStore()
     private let contacts = ContactResolver()
     private let messageQueue = DispatchQueue(label: "com.beacon.messages", qos: .userInitiated)
+    private let recentsQueue = DispatchQueue(label: "com.beacon.recents", qos: .userInitiated)
     /// Monotonic generation bumped on every scheduled search (query OR filter
     /// change). Async work captures the value and only applies its results if
     /// the token still matches - so stale/superseded searches are dropped.
@@ -258,6 +327,7 @@ final class SearchEngine: ObservableObject {
 
     // Per-source buckets, merged in `.all` mode by `publish()`.
     private var fileResults: [SearchResult] = []
+    private var scannedAppResults: [SearchResult] = []
     private var messageResults: [SearchResult] = []
     private var noteResults: [SearchResult] = []
 
@@ -322,6 +392,7 @@ final class SearchEngine: ObservableObject {
             contentQueryActive = false
             currentTokens = []
             fileResults = []
+            scannedAppResults = []
             messageResults = []
             noteResults = []
             // Clipboard, History & Recents show recent items when the query
@@ -336,7 +407,14 @@ final class SearchEngine: ObservableObject {
             } else if selectedType.isRecents {
                 results = []
                 isSearching = true
-                startRecentsQuery(tokens: [])
+                searchRecents(tokens: [], token: token)
+            } else if selectedType.isApps {
+                results = []
+                isSearching = true
+                searchApps(tokens: [], token: token)
+            } else if selectedType.isSettings {
+                results = settingsStore.search(tokens: []).map { SearchResult(setting: $0) }
+                isSearching = false
             } else {
                 results = []
                 isSearching = false
@@ -379,7 +457,21 @@ final class SearchEngine: ObservableObject {
         }
         if selectedType.isRecents {
             needsFullDiskAccess = false
-            startRecentsQuery(tokens: currentTokens)
+            searchRecents(tokens: currentTokens, token: token)
+            return
+        }
+        if selectedType.isApps {
+            needsFullDiskAccess = false
+            searchApps(tokens: currentTokens, token: token)
+            return
+        }
+        if selectedType.isSettings {
+            nameQuery.stop()
+            contentQuery.stop()
+            contentQueryActive = false
+            needsFullDiskAccess = false
+            results = settingsStore.search(tokens: currentTokens).map { SearchResult(setting: $0) }
+            isSearching = false
             return
         }
         needsFullDiskAccess = false
@@ -403,10 +495,29 @@ final class SearchEngine: ObservableObject {
 
         // In "All" mode, also fold in (best-effort) messages and notes. Clear
         // the prior buckets so stale rows don't linger until the gather lands.
+        scannedAppResults = []
         messageResults = []
         noteResults = []
         if selectedType == .all {
+            gatherAppsForAll(tokens: currentTokens, token: token)
             gatherDatabasesForAll(tokens: currentTokens, token: token)
+        }
+    }
+
+    /// In All mode, supplement Spotlight with a direct app-folder scan so
+    /// third-party apps show up even when Spotlight's app metadata misses them.
+    private func gatherAppsForAll(tokens: [String], token: Int) {
+        recentsQueue.async { [weak self] in
+            guard let self else { return }
+            let mapped = self.appStore.search(tokens: tokens, limit: 12,
+                                              isCancelled: self.cancellation(for: token))
+                .map { SearchResult(app: $0) }
+
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType == .all else { return }
+                self.scannedAppResults = mapped
+                self.publish()
+            }
         }
     }
 
@@ -445,14 +556,32 @@ final class SearchEngine: ObservableObject {
     /// file-backed modes show just their files.
     private func publish() {
         if selectedType == .all {
+            let filesAndApps = mergeScannedApps(into: fileResults).prefix(allFileCap)
             var combined: [SearchResult] = []
-            combined += fileResults.prefix(allFileCap)
+            combined += filesAndApps
             combined += messageResults.prefix(allMessageCap)
             combined += noteResults.prefix(allNoteCap)
             results = Array(combined.prefix(displayCap))
         } else {
             results = fileResults
         }
+    }
+
+    private func mergeScannedApps(into fileRows: [SearchResult]) -> [SearchResult] {
+        guard !scannedAppResults.isEmpty else { return fileRows }
+        var byID: [String: SearchResult] = [:]
+        for row in fileRows { byID[row.id] = row }
+        for row in scannedAppResults { byID[row.id] = row }
+        return byID.values
+            .map { (result: $0, score: score($0)) }
+            .sorted { a, b in
+                if a.score != b.score { return a.score < b.score }
+                let da = a.result.lastUsed ?? a.result.modified ?? .distantPast
+                let db = b.result.lastUsed ?? b.result.modified ?? .distantPast
+                if da != db { return da > db }
+                return a.result.name.localizedCaseInsensitiveCompare(b.result.name) == .orderedAscending
+            }
+            .map(\.result)
     }
 
     // MARK: - Messages
@@ -549,89 +678,48 @@ final class SearchEngine: ObservableObject {
 
     // MARK: - Recents
 
-    /// How far back the Recents view reaches.
-    private let recentsWindowDays = 30.0
-
-    /// Start (or restart) the file-index queries behind the Recents view,
-    /// optionally narrowed by name tokens.
-    ///
-    /// Two passes are essential: a single query can only be *sorted* one way,
-    /// and we read a capped number of rows. Sorted by last-used, a freshly
-    /// saved image (opened by nothing yet, so its last-used date is nil) sinks
-    /// below thousands of older rows and never gets read - the exact way
-    /// Finder's Recents loses files. So the name query fetches recently
-    /// *opened* items (sorted by last-used) and the second query fetches
-    /// recently *added* items (sorted by date-added); the merge is ordered by
-    /// whichever touch was most recent.
-    private func startRecentsQuery(tokens: [String]) {
-        let cutoff = Date(timeIntervalSinceNow: -recentsWindowDays * 86_400) as NSDate
-        let nameFilter: NSPredicate? = tokens.isEmpty ? nil : namePredicate(tokens: tokens, trees: [])
-        func withNameFilter(_ p: NSPredicate) -> NSPredicate {
-            guard let nameFilter else { return p }
-            return NSCompoundPredicate(andPredicateWithSubpredicates: [nameFilter, p])
-        }
-        let scopes = recentsScopes()
-
+    private func searchRecents(tokens: [String], token: Int) {
         nameQuery.stop()
-        nameQuery.searchScopes = scopes
-        nameQuery.sortDescriptors = Self.defaultSortDescriptors
-        nameQuery.predicate = withNameFilter(
-            NSPredicate(format: "kMDItemLastUsedDate >= %@", cutoff))
-        nameQuery.start()
-
         contentQuery.stop()
-        contentQuery.searchScopes = scopes
-        contentQuery.sortDescriptors = [
-            NSSortDescriptor(key: NSMetadataItemDateAddedKey, ascending: false)
-        ]
-        contentQuery.predicate = withNameFilter(
-            NSPredicate(format: "kMDItemDateAdded >= %@", cutoff))
-        contentQueryActive = true
-        contentQuery.start()
-    }
+        contentQueryActive = false
+        needsFullDiskAccess = false
 
-    /// Scope Recents to the user's visible top-level folders (plus iCloud
-    /// Drive). Machine-wide scope lets app junk win: browsers, IDEs, and
-    /// sync agents add hundreds of cache/log files a minute under ~/Library,
-    /// and since Spotlight hands us rows in sort order up to a read cap, a
-    /// fresh download gets buried below the junk within minutes and never
-    /// gets read. Scoping at the query level keeps the cap for real files.
-    private func recentsScopes() -> [Any] {
-        let fm = FileManager.default
-        var scopes: [URL] = []
-        let entries = (try? fm.contentsOfDirectory(atPath: homePath)) ?? []
-        for entry in entries.sorted() {
-            guard !entry.hasPrefix("."), entry != "Library", entry != "Applications" else { continue }
-            var isDirectory: ObjCBool = false
-            let path = homePath + "/" + entry
-            if fm.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
-                scopes.append(URL(fileURLWithPath: path, isDirectory: true))
+        recentsQueue.async { [weak self] in
+            guard let self else { return }
+            let rows = self.recentsStore.search(tokens: tokens,
+                                                isCancelled: self.cancellation(for: token))
+            let mapped = rows.map { SearchResult(recent: $0) }
+
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType.isRecents else { return }
+                self.fileResults = mapped
+                self.results = mapped
+                self.isSearching = false
             }
         }
-        // iCloud Drive lives under ~/Library, so add it back explicitly.
-        let icloud = homePath + "/Library/Mobile Documents/com~apple~CloudDocs"
-        if fm.fileExists(atPath: icloud) {
-            scopes.append(URL(fileURLWithPath: icloud, isDirectory: true))
-        }
-        return scopes.isEmpty ? [NSMetadataQueryUserHomeScope] : scopes
     }
 
-    /// What belongs in Recents: the user's own documents. Excludes apps,
-    /// folders, anything outside the home directory, ~/Library internals,
-    /// hidden files, and dev noise - the junk that makes Finder's Recents
-    /// feel broken.
-    private func isRecentsEligible(_ r: SearchResult) -> Bool {
-        guard !r.isApp, !r.isFolder else { return false }
-        guard r.path.hasPrefix(homePath + "/") else { return false }
-        let relative = r.path.dropFirst(homePath.count)
-        // ~/Library is app territory - except iCloud Drive, which lives there.
-        if relative.hasPrefix("/Library/"),
-           !relative.hasPrefix("/Library/Mobile Documents/") { return false }
-        for component in relative.split(separator: "/") {
-            if component.hasPrefix(".") { return false }
-            if component == "node_modules" || component == "Caches" { return false }
+    // MARK: - Apps
+
+    private func searchApps(tokens: [String], token: Int) {
+        nameQuery.stop()
+        contentQuery.stop()
+        contentQueryActive = false
+        needsFullDiskAccess = false
+
+        recentsQueue.async { [weak self] in
+            guard let self else { return }
+            let rows = self.appStore.search(tokens: tokens,
+                                            isCancelled: self.cancellation(for: token))
+            let mapped = rows.map { SearchResult(app: $0) }
+
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType.isApps else { return }
+                self.fileResults = mapped
+                self.results = mapped
+                self.isSearching = false
+            }
         }
-        return true
     }
 
     /// Probe the protected databases once at launch. Attempting to open them
@@ -733,46 +821,24 @@ final class SearchEngine: ObservableObject {
 
         var merged: [String: SearchResult] = [:]
 
-        if selectedType.isRecents {
-            // Both queries are name-kind here: the second pass fetches
-            // recently *added* files, not text-content matches, so no
-            // "text match" badge applies.
-            readResults(from: nameQuery, cap: recentsReadCap, matchKind: .name, into: &merged)
-            readResults(from: contentQuery, cap: recentsReadCap, matchKind: .name, into: &merged)
-        } else {
-            // Name matches first so they win on dedupe against content matches.
-            readResults(from: nameQuery, cap: nameReadCap, matchKind: .name, into: &merged)
-            if contentQueryActive {
-                readResults(from: contentQuery, cap: contentReadCap, matchKind: .content, into: &merged)
-            }
+        // Name matches first so they win on dedupe against content matches.
+        readResults(from: nameQuery, cap: nameReadCap, matchKind: .name, into: &merged)
+        if contentQueryActive {
+            readResults(from: contentQuery, cap: contentReadCap, matchKind: .content, into: &merged)
         }
 
-        if selectedType.isRecents {
-            // Recents is a timeline, not a ranked search: newest first, by
-            // whichever touch (opened / added / modified) is most recent.
-            fileResults = merged.values
-                .filter { isRecentsEligible($0) }
-                .sorted { a, b in
-                    let da = a.effectiveRecency, db = b.effectiveRecency
-                    if da != db { return da > db }
-                    return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-                }
-                .prefix(displayCap)
-                .map { $0 }
-        } else {
-            // Score once per result (folding is not free), then sort.
-            fileResults = merged.values
-                .map { (result: $0, score: score($0)) }
-                .sorted { a, b in
-                    if a.score != b.score { return a.score < b.score }
-                    let da = a.result.lastUsed ?? a.result.modified ?? .distantPast
-                    let db = b.result.lastUsed ?? b.result.modified ?? .distantPast
-                    if da != db { return da > db }
-                    return a.result.name.localizedCaseInsensitiveCompare(b.result.name) == .orderedAscending
-                }
-                .prefix(displayCap)
-                .map(\.result)
-        }
+        // Score once per result (folding is not free), then sort.
+        fileResults = merged.values
+            .map { (result: $0, score: score($0)) }
+            .sorted { a, b in
+                if a.score != b.score { return a.score < b.score }
+                let da = a.result.lastUsed ?? a.result.modified ?? .distantPast
+                let db = b.result.lastUsed ?? b.result.modified ?? .distantPast
+                if da != db { return da > db }
+                return a.result.name.localizedCaseInsensitiveCompare(b.result.name) == .orderedAscending
+            }
+            .prefix(displayCap)
+            .map(\.result)
         publish()
 
         let bothDone = !nameQuery.isGathering

@@ -170,6 +170,7 @@ struct SearchView: View {
         case .notes: return "Search your notes"
         case .clipboard: return "Clipboard history"
         case .history: return "Browser history"
+        case .settings: return "System Settings"
         default: return "Search your Mac"
         }
     }
@@ -181,6 +182,7 @@ struct SearchView: View {
         case .notes: return "Type a word or phrase to search across all your Apple Notes."
         case .clipboard: return "Copied text will appear here. Anything you copy is searchable and ready to paste back."
         case .history: return "Search every page you've visited in Safari, Chrome, Brave, Edge, and Arc."
+        case .settings: return "Jump straight to Wi-Fi, Privacy, Displays, Keyboard, Full Disk Access, and more."
         default: return "Type a name. Use the filters to narrow by type."
         }
     }
@@ -190,6 +192,7 @@ struct SearchView: View {
         case .history: return "Safari history"
         case .notes: return "Notes"
         case .messages: return "Messages"
+        case .settings: return "System Settings"
         default: return "Messages and Notes"
         }
     }
@@ -271,6 +274,7 @@ struct SearchView: View {
         case .note: return "Notes"
         case .clipboard: return "Clipboard"
         case .history: return "History"
+        case .settings: return "System Settings"
         }
     }
 
@@ -336,6 +340,9 @@ struct SearchView: View {
                 hint("⌘C", "Copy")
             case .history:
                 hint("return", "Open in browser")
+                hint("⌘C", "Copy link")
+            case .settings:
+                hint("return", "Open Settings")
                 hint("⌘C", "Copy link")
             case .file:
                 hint("return", "Open")
@@ -423,6 +430,9 @@ struct SearchView: View {
         case .history:
             if let url = URL(string: result.path) { NSWorkspace.shared.open(url) }
             onClose()
+        case .settings:
+            if let url = URL(string: result.path) { NSWorkspace.shared.open(url) }
+            onClose()
         }
     }
 
@@ -499,7 +509,7 @@ struct SearchView: View {
         let value: String
         switch result.source {
         case .file: value = result.path
-        case .history: value = result.path   // the URL
+        case .history, .settings: value = result.path   // URL/deep link
         default: value = result.messageBody ?? ""
         }
         pb.setString(value, forType: .string)

@@ -9,7 +9,6 @@ enum FileType: String, CaseIterable, Identifiable {
     case apps
     case messages
     case notes
-    case clipboard
     case history
     case docs
     case pdfs
@@ -17,12 +16,18 @@ enum FileType: String, CaseIterable, Identifiable {
     case folders
     case photos
     case videos
+    case clipboard
+    case settings
 
     var id: String { rawValue }
 
     /// Recents is a recency-ordered view of the file index: recently opened or
     /// added documents, browsable with an empty query and filterable by name.
     var isRecents: Bool { self == .recents }
+
+    /// Apps are scanned directly from application folders because Spotlight can
+    /// miss third-party/external installs.
+    var isApps: Bool { self == .apps }
 
     /// Messages are searched from the Messages database, not the file index.
     var isMessages: Bool { self == .messages }
@@ -36,11 +41,14 @@ enum FileType: String, CaseIterable, Identifiable {
     /// Browser history is searched from Safari/Chromium history databases.
     var isHistory: Bool { self == .history }
 
+    /// System Settings shortcuts are a focused store-backed source.
+    var isSettings: Bool { self == .settings }
+
     /// True for filters backed by the Spotlight file index (All and the file
-    /// type chips). Database/store-backed filters (Messages, Notes, Clipboard,
-    /// History) handle their own results and must ignore file-index updates.
+    /// type chips). Store-backed filters (Apps, Messages, Notes, Recents,
+    /// Clipboard, History, Settings) handle their own results and must ignore file-index updates.
     var usesFileIndex: Bool {
-        !(isMessages || isNotes || isClipboard || isHistory)
+        !(isApps || isMessages || isNotes || isRecents || isClipboard || isHistory || isSettings)
     }
 
     /// Whether this source's content appears in the blended "All" view. Files,
@@ -48,7 +56,7 @@ enum FileType: String, CaseIterable, Identifiable {
     /// own chips (and `all` itself isn't marked).
     var includedInAll: Bool {
         switch self {
-        case .all, .recents, .clipboard, .history: return false
+        case .all, .recents, .clipboard, .history, .settings: return false
         default: return true
         }
     }
@@ -74,6 +82,7 @@ enum FileType: String, CaseIterable, Identifiable {
         case .notes: return "Notes"
         case .clipboard: return "Clipboard"
         case .history: return "History"
+        case .settings: return "Settings"
         }
     }
 
@@ -93,6 +102,7 @@ enum FileType: String, CaseIterable, Identifiable {
         case .notes: return "note.text"
         case .clipboard: return "doc.on.clipboard"
         case .history: return "clock.arrow.circlepath"
+        case .settings: return "gearshape"
         }
     }
 
@@ -136,6 +146,8 @@ enum FileType: String, CaseIterable, Identifiable {
             return [] // handled by ClipboardStore, not the file index
         case .history:
             return [] // handled by BrowserHistoryStore, not the file index
+        case .settings:
+            return [] // handled by SettingsStore, not the file index
         }
     }
 }

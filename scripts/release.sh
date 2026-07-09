@@ -184,21 +184,25 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
 - **Browser history** - the **History** filter searches every page you've
   visited across **Safari, Chrome, Brave, Edge, and Arc** (all profiles).
   **Return** opens it; **Cmd + C** copies the link.
+- **System Settings shortcuts** - the **Settings** filter jumps straight to
+  Wi-Fi, Displays, Privacy, Full Disk Access, Keyboard, Battery, and more.
 - **Notes search** - search across all your Apple Notes; **Return** opens the
   exact note.
 
 ## What's new in $VERSION
-- **Search no longer wedges on stale results.** Messages, Notes, and History
-  now cancel superseded scans mid-loop, so typing a rare word like "contract"
-  cannot leave the list stuck on results from the first keystroke.
-- **Faster Messages filtering.** Message text/handle matches use the
-  precomputed search haystack first and only fall back to contact-name lookup
-  when needed, making full-history scans much cheaper.
-- **Recents catches fresh saves and downloads.** Recents is scoped to real user
-  folders at the Spotlight-query level and reads deeper, so a newly saved image
-  from Safari or downloaded PDF is not buried under ~/Library cache churn.
-- **Panel reopen self-heals.** Summoning Beacon re-runs the active query, so
-  the list reflects fresh files/messages and does not require relaunching.
+- **Recents is now filesystem-backed.** Fresh Safari saves, screenshots, and
+  downloads show up immediately without relying on Spotlight/Finder Recents.
+- **File thumbnails.** Images, PDFs, videos, and many docs now show Quick Look
+  previews in file rows instead of generic icons.
+- **History favicons.** Browser-history rows load site icons directly from the
+  visited site (no third-party favicon service), with better fallbacks for
+  sites that don't expose `/favicon.ico`.
+- **Downloaded apps show up.** Apps are scanned directly from application
+  folders, so third-party/external installs like Chrome, Claude, Cursor, and
+  Discord show in Apps and All.
+- **System Settings filter.** A new last filter jumps directly to common
+  System Settings panes like Wi-Fi, Privacy, Full Disk Access, Displays,
+  Keyboard, Battery, and more.
 
 Upgrading from an earlier version? Just replace the app in Applications -
 your Full Disk Access setting carries over. Clipboard history starts recording
