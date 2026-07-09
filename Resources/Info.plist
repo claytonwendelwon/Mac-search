@@ -19,9 +19,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.2</string>
+	<string>1.0.3</string>
 	<key>CFBundleVersion</key>
-	<string>14</string>
+	<string>15</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Beacon uses Contacts to show sender names (instead of phone numbers) in your message search results.</string>
 	<key>NSAppleEventsUsageDescription</key>

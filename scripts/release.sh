@@ -190,6 +190,10 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
   exact note.
 
 ## What's new in $VERSION
+- **Fresh screenshot/download fast lane.** Recents now checks Desktop,
+  Downloads, configured screenshot folders, and iCloud equivalents before the
+  deeper crawl, so brand-new screenshots show up immediately even on Macs with
+  huge folders.
 - **Better intent ranking.** Beacon now favors exact phrase and standalone-word
   matches across Messages, Notes, History, Clipboard, Apps, Recents, Settings,
   and file names, so \`main\` beats \`maintain\` and \`IG\` beats random
