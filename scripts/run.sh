@@ -17,9 +17,41 @@ BUILD_DIR="$ROOT/.build/$CONFIG"
 # (Building a separate copy inside the project folder leads to launching a
 # stale app from Spotlight/Dock while the dev copy lives elsewhere.)
 APP_BUNDLE="/Applications/$APP_NAME.app"
+if [[ ! -w "/Applications" || ( -e "$APP_BUNDLE" && ! -w "$APP_BUNDLE" ) ]]; then
+  # A release installed by another macOS account may not be replaceable.
+  # ~/Applications is treated as an installed location by SelfInstaller too.
+  APP_BUNDLE="$HOME/Applications/$APP_NAME.app"
+fi
 
 echo "==> Building $APP_NAME ($CONFIG)..."
-swift build -c "$CONFIG"
+if ! swift build -c "$CONFIG"; then
+  # SwiftPM can be unavailable after a partial Command Line Tools update even
+  # when swiftc and the macOS SDK are healthy. Keep local development unblocked
+  # by compiling the dependency-free app directly with the same Swift mode.
+  echo "==> SwiftPM unavailable; compiling directly with swiftc..."
+  mkdir -p "$BUILD_DIR"
+  SOURCE_FILES=()
+  while IFS= read -r file; do
+    SOURCE_FILES+=("$file")
+  done < <(rg --files Sources/Beacon -g '*.swift')
+
+  SWIFT_FLAGS=(-swift-version 5 -target "$(uname -m)-apple-macosx13.0")
+  if [[ "$CONFIG" == "release" ]]; then
+    SWIFT_FLAGS+=(-O)
+  else
+    SWIFT_FLAGS+=(-Onone -g)
+  fi
+
+  xcrun swiftc "${SWIFT_FLAGS[@]}" "${SOURCE_FILES[@]}" \
+    -o "$BUILD_DIR/$APP_NAME" \
+    -framework SwiftUI \
+    -framework AppKit \
+    -framework Carbon \
+    -framework UniformTypeIdentifiers \
+    -framework QuickLook \
+    -framework QuickLookThumbnailing \
+    -lsqlite3
+fi
 
 echo "==> Assembling $APP_NAME.app..."
 rm -rf "$APP_BUNDLE"

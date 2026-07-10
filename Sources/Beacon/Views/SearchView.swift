@@ -6,6 +6,7 @@ struct SearchView: View {
     let onClose: () -> Void
 
     @State private var selectedIndex: Int = 0
+    @Environment(\.colorScheme) private var colorScheme
 
     /// One-time onboarding hint (the global hotkey) shown until dismissed.
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
@@ -19,33 +20,78 @@ struct SearchView: View {
     var body: some View {
         VStack(spacing: 0) {
             searchField
-            Divider()
+            glassDivider
             filterChips
-            Divider()
+            glassDivider
             if !hasSeenWelcome { welcomeBanner }
             resultsArea
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThickMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.thinMaterial)
+        .background {
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(colorScheme == .dark ? 0.13 : 0.38),
+                    Color.white.opacity(colorScheme == .dark ? 0.055 : 0.18),
+                    Color.accentColor.opacity(colorScheme == .dark ? 0.035 : 0.025)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .clipShape(panelShape)
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            panelShape
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(colorScheme == .dark ? 0.30 : 0.78),
+                            Color.white.opacity(0.08),
+                            Color.primary.opacity(0.10)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
         )
+        .overlay(alignment: .top) {
+            panelShape
+                .strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.42), lineWidth: 0.5)
+                .blur(radius: 0.2)
+                .padding(1)
+                .allowsHitTesting(false)
+        }
         .onChange(of: engine.results) { _ in
             selectedIndex = engine.results.isEmpty ? 0 : min(selectedIndex, engine.results.count - 1)
             selectedIndex = max(0, selectedIndex)
         }
     }
 
+    private var panelShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
+    }
+
+    private var glassDivider: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [.clear, Color.primary.opacity(0.10), .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(height: 0.5)
+    }
+
     // MARK: - Search field
 
     private var searchField: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 18, weight: .regular))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 21, weight: .medium))
+                .foregroundStyle(.secondary.opacity(0.82))
 
             SearchField(
                 text: $engine.queryText,
@@ -59,15 +105,27 @@ struct SearchView: View {
                 onCancel: { onClose() },
                 onCycleFilter: { forward in cycleFilter(forward: forward) }
             )
-            .frame(height: 30)
+            .frame(height: 34)
 
             if engine.isSearching {
                 ProgressView()
                     .controlSize(.small)
+                    .tint(.secondary)
+                    .transition(.opacity)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background {
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(colorScheme == .dark ? 0.06 : 0.25),
+                    Color.white.opacity(colorScheme == .dark ? 0.015 : 0.06)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
     }
 
     // MARK: - Filter chips
@@ -86,29 +144,57 @@ struct SearchView: View {
                         engine.selectedType = type
                     } label: {
                         Label(type.title, systemImage: type.symbol)
-                            .font(.system(size: 12, weight: .medium))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
                             .foregroundStyle(isSelected ? Color.white : Color.primary)
                             .background(
-                                Capsule().fill(isSelected
-                                               ? Color.accentColor
-                                               : Color.primary.opacity(0.06))
+                                Capsule().fill(
+                                    isSelected
+                                        ? AnyShapeStyle(
+                                            LinearGradient(
+                                                colors: [
+                                                    Color.accentColor.opacity(0.96),
+                                                    Color.accentColor.opacity(0.78)
+                                                ],
+                                                startPoint: .top,
+                                                endPoint: .bottom
+                                            )
+                                        )
+                                        : AnyShapeStyle(.thinMaterial)
+                                )
+                            )
+                            .overlay {
+                                Capsule()
+                                    .strokeBorder(
+                                        isSelected
+                                            ? Color.white.opacity(0.30)
+                                            : Color.white.opacity(colorScheme == .dark ? 0.12 : 0.58),
+                                        lineWidth: 0.7
+                                    )
+                            }
+                            .shadow(
+                                color: isSelected
+                                    ? Color.accentColor.opacity(0.24)
+                                    : Color.black.opacity(colorScheme == .dark ? 0.10 : 0.06),
+                                radius: isSelected ? 5 : 3,
+                                y: 2
                             )
                             .overlay(alignment: .topTrailing) {
                                 if showDot {
                                     Circle()
                                         .fill(Color.accentColor)
-                                        .frame(width: 6, height: 6)
-                                        .offset(x: 1, y: -1)
+                                        .frame(width: 6.5, height: 6.5)
+                                        .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
+                                        .offset(x: 1.5, y: -1.5)
                                 }
                             }
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 11)
         }
     }
 
@@ -159,8 +245,9 @@ struct SearchView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(Color.accentColor.opacity(0.08))
-        .overlay(Divider(), alignment: .bottom)
+        .background(.thinMaterial)
+        .background(Color.accentColor.opacity(0.055))
+        .overlay(glassDivider, alignment: .bottom)
     }
 
     private var emptyTitle: String {
@@ -252,8 +339,8 @@ struct SearchView: View {
                             }
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
             }
             .onChange(of: selectedIndex) { newValue in
                 withAnimation(.easeOut(duration: 0.1)) {
@@ -322,8 +409,9 @@ struct SearchView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
-        .background(Color.accentColor.opacity(0.08))
-        .overlay(Divider(), alignment: .top)
+        .background(.thinMaterial)
+        .background(Color.accentColor.opacity(0.055))
+        .overlay(glassDivider, alignment: .top)
     }
 
     private var hintsRow: some View {
@@ -358,9 +446,11 @@ struct SearchView: View {
             }
             quitButton
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color.primary.opacity(0.03))
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+        .background(.ultraThinMaterial)
+        .background(Color.white.opacity(colorScheme == .dark ? 0.015 : 0.08))
+        .overlay(glassDivider, alignment: .top)
     }
 
     /// Fully quits Beacon (stops the background menu-bar process) so it can be
@@ -372,9 +462,13 @@ struct SearchView: View {
                 Text("Quit").font(.system(size: 10, weight: .medium))
             }
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(Color.primary.opacity(0.06)))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.thinMaterial, in: Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.10 : 0.45), lineWidth: 0.5)
+            )
         }
         .buttonStyle(.plain)
         .help("Quit Beacon completely (stops it running in the background)")
@@ -384,8 +478,12 @@ struct SearchView: View {
         HStack(spacing: 4) {
             Text(key)
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .padding(.horizontal, 5).padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.08)))
+                .padding(.horizontal, 6).padding(.vertical, 2.5)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.10 : 0.48), lineWidth: 0.5)
+                )
             Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
         }
     }

@@ -10,6 +10,7 @@ struct ResultRow: View {
     var showRecency: Bool = false
     @ObservedObject private var thumbnails = ThumbnailStore.shared
     @ObservedObject private var favicons = FaviconStore.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 10) {
@@ -47,12 +48,14 @@ struct ResultRow: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.22) : Color.clear)
-        )
-        .contentShape(Rectangle())
+        .padding(.vertical, 8)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isSelected
+                      ? Color.accentColor.opacity(colorScheme == .dark ? 0.16 : 0.11)
+                      : Color.clear)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var thumbnailView: some View {
@@ -65,14 +68,8 @@ struct ResultRow: View {
         return Image(nsImage: image)
             .resizable()
             .aspectRatio(contentMode: isPreview ? .fill : .fit)
-            .frame(width: isPreview ? 36 : 28, height: isPreview ? 36 : 28)
-            .clipShape(RoundedRectangle(cornerRadius: isPreview ? 6 : 0, style: .continuous))
-            .overlay {
-                if isPreview {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                }
-            }
+            .frame(width: isPreview ? 38 : 30, height: isPreview ? 38 : 30)
+            .clipShape(RoundedRectangle(cornerRadius: isPreview ? 8 : 0, style: .continuous))
     }
 
     /// Title with matched tokens bolded. The contact/file name is the title.

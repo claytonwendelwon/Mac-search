@@ -78,7 +78,27 @@ fi
 
 # --- Build ------------------------------------------------------------------
 echo "==> Building $APP_NAME $VERSION (release)..."
-swift build -c release
+if ! swift build -c release; then
+  echo "==> SwiftPM unavailable; compiling directly with swiftc..."
+  mkdir -p "$BUILD_DIR"
+  SOURCE_FILES=()
+  while IFS= read -r file; do
+    SOURCE_FILES+=("$file")
+  done < <(rg --files Sources/Beacon -g '*.swift')
+
+  xcrun swiftc -swift-version 5 \
+    -target "$(uname -m)-apple-macosx13.0" \
+    -O \
+    "${SOURCE_FILES[@]}" \
+    -o "$BUILD_DIR/$APP_NAME" \
+    -framework SwiftUI \
+    -framework AppKit \
+    -framework Carbon \
+    -framework UniformTypeIdentifiers \
+    -framework QuickLook \
+    -framework QuickLookThumbnailing \
+    -lsqlite3
+fi
 
 echo "==> Assembling $APP_NAME.app..."
 rm -rf "$APP_BUNDLE"
@@ -190,6 +210,13 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
   exact note.
 
 ## What's new in $VERSION
+- **A new glass interface.** Beacon now uses a clearer, more modern macOS
+  material with continuous 24-point corners, subtle specular highlights,
+  floating glass filter controls, and improved spacing throughout.
+- **Clearer result selection.** The active result uses a restrained light-blue
+  tint so names, paths, metadata, and icons remain easy to read.
+- **Cleaner thumbnails.** File previews and app icons no longer sit inside
+  redundant outlined image holders.
 - **Fresh screenshot/download fast lane.** Recents now checks Desktop,
   Downloads, configured screenshot folders, and iCloud equivalents before the
   deeper crawl, so brand-new screenshots show up immediately even on Macs with

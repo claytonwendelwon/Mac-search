@@ -26,8 +26,16 @@ struct SearchField: NSViewRepresentable {
         field.focusRingType = .none
         field.isEditable = true
         field.isSelectable = true
-        field.font = .systemFont(ofSize: 22, weight: .light)
+        field.font = .systemFont(ofSize: 23, weight: .regular)
         field.placeholderString = "Search your Mac…"
+        field.textColor = .labelColor
+        field.placeholderAttributedString = NSAttributedString(
+            string: "Search your Mac…",
+            attributes: [
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: NSFont.systemFont(ofSize: 23, weight: .regular)
+            ]
+        )
         field.lineBreakMode = .byTruncatingTail
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false

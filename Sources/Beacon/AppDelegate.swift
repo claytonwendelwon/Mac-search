@@ -8,8 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: SearchPanel?
     private let engine = SearchEngine()
 
-    private let panelWidth: CGFloat = 720
-    private let panelHeight: CGFloat = 480
+    private let panelWidth: CGFloat = 740
+    private let panelHeight: CGFloat = 500
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.write("Launching Beacon...")
@@ -85,6 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hosting = NSHostingView(rootView: root)
         hosting.frame = panel.contentView?.bounds ?? .zero
         hosting.autoresizingMask = [.width, .height]
+        hosting.wantsLayer = true
+        hosting.layer?.cornerRadius = 24
+        hosting.layer?.cornerCurve = .continuous
+        hosting.layer?.masksToBounds = true
         panel.contentView = hosting
         panel.delegate = self
         self.panel = panel
