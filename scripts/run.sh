@@ -33,7 +33,7 @@ if ! swift build -c "$CONFIG"; then
   SOURCE_FILES=()
   while IFS= read -r file; do
     SOURCE_FILES+=("$file")
-  done < <(rg --files Sources/Beacon -g '*.swift')
+  done < <(git ls-files 'Sources/Beacon/*.swift' 'Sources/Beacon/**/*.swift')
 
   SWIFT_FLAGS=(-swift-version 5 -target "$(uname -m)-apple-macosx13.0")
   if [[ "$CONFIG" == "release" ]]; then

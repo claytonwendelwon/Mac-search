@@ -84,7 +84,7 @@ if ! swift build -c release; then
   SOURCE_FILES=()
   while IFS= read -r file; do
     SOURCE_FILES+=("$file")
-  done < <(rg --files Sources/Beacon -g '*.swift')
+  done < <(git ls-files 'Sources/Beacon/*.swift' 'Sources/Beacon/**/*.swift')
 
   xcrun swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macosx13.0" \
