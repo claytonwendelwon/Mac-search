@@ -267,6 +267,7 @@ struct SearchView: View {
         }
         .coordinateSpace(name: "filterRow")
         .onPreferenceChange(FilterFramePreferenceKey.self) { filterFrames = $0 }
+        .frame(height: 56)
     }
 
     private func filterChipLabel(_ type: FileType, isSelected: Bool) -> some View {
@@ -713,7 +714,7 @@ struct SearchView: View {
             Image(systemName: systemImage).font(.system(size: 10, weight: .semibold))
             Text(title).font(.system(size: 10, weight: .medium))
         }
-        .foregroundStyle(Color.accentColor)
+        .foregroundStyle(.primary)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(.thinMaterial, in: Capsule())
