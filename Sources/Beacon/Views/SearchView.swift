@@ -3,9 +3,16 @@ import AppKit
 
 struct SearchView: View {
     @ObservedObject var engine: SearchEngine
+    @ObservedObject private var filterLayout = FilterLayoutStore.shared
     let onClose: () -> Void
+    let onEditingChanged: (Bool) -> Void
 
     @State private var selectedIndex: Int = 0
+    @State private var draggedFilter: FileType?
+    @State private var dragPointer: CGPoint?
+    @State private var dragGrabOffset: CGSize = .zero
+    @State private var filterFrames: [FileType: CGRect] = [:]
+    @State private var showAddFilters = false
     @Environment(\.colorScheme) private var colorScheme
 
     /// One-time onboarding hint (the global hotkey) shown until dismissed.
@@ -23,8 +30,12 @@ struct SearchView: View {
             glassDivider
             filterChips
             glassDivider
-            if !hasSeenWelcome { welcomeBanner }
-            resultsArea
+            if filterLayout.isEditing {
+                editModeGuidance
+            } else {
+                if !hasSeenWelcome { welcomeBanner }
+                resultsArea
+            }
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -67,6 +78,20 @@ struct SearchView: View {
             selectedIndex = engine.results.isEmpty ? 0 : min(selectedIndex, engine.results.count - 1)
             selectedIndex = max(0, selectedIndex)
         }
+        .onAppear { syncFilterLayout() }
+        .onChange(of: filterLayout.visibleFilters) { _ in syncFilterLayout() }
+        .onChange(of: filterLayout.isEditing) { editing in
+            if editing {
+                engine.queryText = ""
+                selectedIndex = 0
+            } else {
+                showAddFilters = false
+                draggedFilter = nil
+                dragPointer = nil
+                dragGrabOffset = .zero
+            }
+            onEditingChanged(editing)
+        }
     }
 
     private var panelShape: RoundedRectangle {
@@ -89,20 +114,29 @@ struct SearchView: View {
 
     private var searchField: some View {
         HStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: filterLayout.isEditing ? "slider.horizontal.3" : "magnifyingglass")
                 .font(.system(size: 21, weight: .medium))
-                .foregroundStyle(.secondary.opacity(0.82))
+                .foregroundStyle(Color.secondary.opacity(0.82))
 
             SearchField(
                 text: $engine.queryText,
                 focusToken: engine.focusRequestToken,
+                placeholder: filterLayout.isEditing ? "Edit your experience…" : "Search your Mac…",
+                isEnabled: !filterLayout.isEditing,
                 onMoveDown: { moveSelection(1) },
                 onMoveUp: { moveSelection(-1) },
                 onSubmit: { openSelected() },
                 onReveal: { revealSelected() },
                 onPreview: { previewSelected() },
                 onCopy: { copySelectedPath() },
-                onCancel: { onClose() },
+                onJump: { jumpToSelectedMessage() },
+                onCancel: {
+                    if filterLayout.isEditing {
+                        finishEditing()
+                    } else {
+                        onClose()
+                    }
+                },
                 onCycleFilter: { forward in cycleFilter(forward: forward) }
             )
             .frame(height: 34)
@@ -112,6 +146,32 @@ struct SearchView: View {
                     .controlSize(.small)
                     .tint(.secondary)
                     .transition(.opacity)
+            }
+
+            if filterLayout.isEditing {
+                Button {
+                    showAddFilters.toggle()
+                } label: {
+                    Label("Add", systemImage: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .disabled(filterLayout.hiddenFilters.isEmpty)
+                .popover(isPresented: $showAddFilters, arrowEdge: .top) {
+                    addFiltersPopover
+                }
+
+                Button {
+                    finishEditing()
+                } label: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .help("Done editing")
             }
         }
         .padding(.horizontal, 20)
@@ -131,71 +191,247 @@ struct SearchView: View {
     // MARK: - Filter chips
 
     private var filterChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(FileType.allCases) { type in
-                    let isSelected = engine.selectedType == type
-                    // When All is active, mark the sources actually included in
-                    // the blended list with a small accent dot. Clipboard and
-                    // History aren't in All, so they get no dot - a visual cue
-                    // that you have to filter for them.
-                    let showDot = engine.selectedType == .all && type.includedInAll
-                    Button {
-                        engine.selectedType = type
-                    } label: {
-                        Label(type.title, systemImage: type.symbol)
-                            .font(.system(size: 12, weight: .semibold))
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 6)
-                            .foregroundStyle(isSelected ? Color.white : Color.primary)
-                            .background(
-                                Capsule().fill(
-                                    isSelected
-                                        ? AnyShapeStyle(
-                                            LinearGradient(
-                                                colors: [
-                                                    Color.accentColor.opacity(0.96),
-                                                    Color.accentColor.opacity(0.78)
-                                                ],
-                                                startPoint: .top,
-                                                endPoint: .bottom
-                                            )
-                                        )
-                                        : AnyShapeStyle(.thinMaterial)
-                                )
-                            )
-                            .overlay {
-                                Capsule()
-                                    .strokeBorder(
-                                        isSelected
-                                            ? Color.white.opacity(0.30)
-                                            : Color.white.opacity(colorScheme == .dark ? 0.12 : 0.58),
-                                        lineWidth: 0.7
-                                    )
-                            }
-                            .shadow(
-                                color: isSelected
-                                    ? Color.accentColor.opacity(0.24)
-                                    : Color.black.opacity(colorScheme == .dark ? 0.10 : 0.06),
-                                radius: isSelected ? 5 : 3,
-                                y: 2
-                            )
-                            .overlay(alignment: .topTrailing) {
-                                if showDot {
-                                    Circle()
-                                        .fill(Color.accentColor)
-                                        .frame(width: 6.5, height: 6.5)
-                                        .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
-                                        .offset(x: 1.5, y: -1.5)
+        ZStack(alignment: .topLeading) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(filterLayout.visibleFilters) { type in
+                        let isSelected = engine.selectedType == type
+                        let showDot = engine.selectedType == .all && type.includedInAll
+                        ZStack(alignment: .topTrailing) {
+                            if filterLayout.isEditing {
+                                filterChipLabel(type, isSelected: isSelected)
+                                    .contentShape(Capsule())
+                            } else {
+                                Button {
+                                    engine.selectedType = type
+                                } label: {
+                                    filterChipLabel(type, isSelected: isSelected)
                                 }
+                                .buttonStyle(.plain)
                             }
+
+                            if filterLayout.isEditing && type != .all {
+                                Button {
+                                    filterLayout.hide(type)
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .symbolRenderingMode(.palette)
+                                        .foregroundStyle(.white, Color.red)
+                                }
+                                .buttonStyle(.plain)
+                                .offset(x: 4, y: -5)
+                            } else if showDot {
+                                Circle()
+                                    .fill(Color.accentColor)
+                                    .frame(width: 6.5, height: 6.5)
+                                    .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
+                                    .offset(x: 1.5, y: -1.5)
+                            }
+                        }
+                        .modifier(
+                            FilterJiggle(
+                                active: filterLayout.isEditing && type != .all && draggedFilter != type,
+                                phase: Double(type.rawValue.unicodeScalars.reduce(0) { $0 + Int($1.value) }) * 0.17
+                            )
+                        )
+                        .opacity(draggedFilter == type ? 0.001 : 1)
+                        .background {
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: FilterFramePreferenceKey.self,
+                                    value: [type: proxy.frame(in: .named("filterRow"))]
+                                )
+                            }
+                        }
+                        .highPriorityGesture(
+                            reorderGesture(for: type),
+                            including: filterLayout.isEditing && type != .all ? .all : .none
+                        )
+                    }
+                }
+                .padding(.leading, 18)
+                .padding(.trailing, 18)
+                .padding(.vertical, 11)
+            }
+
+            if let type = draggedFilter, let pointer = dragPointer {
+                draggedFilterPreview(type)
+                    .position(
+                        x: pointer.x - dragGrabOffset.width,
+                        y: pointer.y - dragGrabOffset.height - 5
+                    )
+                    .allowsHitTesting(false)
+                    .zIndex(20)
+            }
+        }
+        .coordinateSpace(name: "filterRow")
+        .onPreferenceChange(FilterFramePreferenceKey.self) { filterFrames = $0 }
+    }
+
+    private func filterChipLabel(_ type: FileType, isSelected: Bool) -> some View {
+        Label(type.title, systemImage: type.symbol)
+            .font(.system(size: 12, weight: .semibold))
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .background(
+                Capsule().fill(
+                    isSelected
+                        ? AnyShapeStyle(
+                            LinearGradient(
+                                colors: [
+                                    Color.accentColor.opacity(0.96),
+                                    Color.accentColor.opacity(0.78)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        : AnyShapeStyle(.thinMaterial)
+                )
+            )
+            .overlay {
+                Capsule()
+                    .strokeBorder(
+                        isSelected
+                            ? Color.white.opacity(0.30)
+                            : Color.white.opacity(colorScheme == .dark ? 0.12 : 0.58),
+                        lineWidth: 0.7
+                    )
+            }
+            .shadow(
+                color: isSelected
+                    ? Color.accentColor.opacity(0.24)
+                    : Color.black.opacity(colorScheme == .dark ? 0.10 : 0.06),
+                radius: isSelected ? 5 : 3,
+                y: 2
+            )
+    }
+
+    private func draggedFilterPreview(_ type: FileType) -> some View {
+        ZStack(alignment: .topTrailing) {
+            filterChipLabel(type, isSelected: engine.selectedType == type)
+            Image(systemName: "minus.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, Color.red)
+                .offset(x: 4, y: -5)
+        }
+        .scaleEffect(1.06)
+        .shadow(color: Color.black.opacity(0.20), radius: 10, y: 6)
+    }
+
+    private func reorderGesture(for type: FileType) -> some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .named("filterRow"))
+            .onChanged { value in
+                guard filterLayout.isEditing, type != .all else { return }
+                if draggedFilter == nil {
+                    filterLayout.beginMove()
+                    draggedFilter = type
+                    if let frame = filterFrames[type] {
+                        dragGrabOffset = CGSize(
+                            width: value.startLocation.x - frame.midX,
+                            height: value.startLocation.y - frame.midY
+                        )
+                    }
+                }
+                guard draggedFilter == type else { return }
+                dragPointer = value.location
+                previewAdjacentMove(for: type, at: value.location.x)
+            }
+            .onEnded { _ in
+                guard draggedFilter == type else { return }
+                filterLayout.commitMove()
+                withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.82)) {
+                    draggedFilter = nil
+                    dragPointer = nil
+                    dragGrabOffset = .zero
+                }
+            }
+    }
+
+    private func previewAdjacentMove(for type: FileType, at pointerX: CGFloat) {
+        var order = filterLayout.visibleFilters
+        guard let index = order.firstIndex(of: type) else { return }
+        let threshold: CGFloat = 6
+
+        if index + 1 < order.count {
+            let right = order[index + 1]
+            if let frame = filterFrames[right], pointerX > frame.midX + threshold {
+                order.swapAt(index, index + 1)
+                withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.84)) {
+                    filterLayout.previewOrder(order)
+                }
+                return
+            }
+        }
+
+        if index > 1 {
+            let left = order[index - 1]
+            if let frame = filterFrames[left], pointerX < frame.midX - threshold {
+                order.swapAt(index, index - 1)
+                withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.84)) {
+                    filterLayout.previewOrder(order)
+                }
+            }
+        }
+    }
+
+    private var addFiltersPopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Add filters")
+                .font(.system(size: 15, weight: .semibold))
+            if filterLayout.hiddenFilters.isEmpty {
+                Text("Every available filter is already shown.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(filterLayout.hiddenFilters) { type in
+                    Button {
+                        filterLayout.add(type)
+                        if filterLayout.hiddenFilters.isEmpty { showAddFilters = false }
+                    } label: {
+                        HStack {
+                            Label(type.title, systemImage: type.symbol)
+                            Spacer()
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(Color.accentColor)
+                        }
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 11)
+            Divider()
+            Button("Restore Defaults") {
+                filterLayout.reset()
+                showAddFilters = false
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
         }
+        .frame(width: 220)
+        .padding(16)
+    }
+
+    private var editModeGuidance: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "rectangle.3.group")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 2)
+            Text("Edit your search")
+                .font(.system(size: 20, weight: .semibold))
+            Text("Remove filters you don’t use, drag them into your preferred order,\nor use Add to restore something later.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { finishEditing() }
     }
 
     // MARK: - Results
@@ -416,33 +652,43 @@ struct SearchView: View {
 
     private var hintsRow: some View {
         HStack(spacing: 14) {
-            switch selectedResult?.source ?? .file {
-            case .message:
-                hint("return", "Open in Messages")
-                hint("⌘C", "Copy text")
-            case .note:
-                hint("return", "Open in Notes")
-                hint("⌘C", "Copy text")
-            case .clipboard:
-                hint("return", "Copy to clipboard")
-                hint("⌘C", "Copy")
-            case .history:
-                hint("return", "Open in browser")
-                hint("⌘C", "Copy link")
-            case .settings:
-                hint("return", "Open Settings")
-                hint("⌘C", "Copy link")
-            case .file:
-                hint("return", "Open")
-                hint("⌘return", "Reveal")
-                hint("⌘Y", "Preview")
-                hint("⌘C", "Copy path")
+            if filterLayout.isEditing {
+                Text("Hold and drag a filter to move it.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            } else {
+                switch selectedResult?.source ?? .file {
+                case .message:
+                    hint("return", "Open in Messages")
+                    hint("⌘J", "Jump to match")
+                    hint("⌘C", "Copy text")
+                case .note:
+                    hint("return", "Open in Notes")
+                    hint("⌘C", "Copy text")
+                case .clipboard:
+                    hint("return", "Copy to clipboard")
+                    hint("⌘C", "Copy")
+                case .history:
+                    hint("return", "Open in browser")
+                    hint("⌘C", "Copy link")
+                case .settings:
+                    hint("return", "Open Settings")
+                    hint("⌘C", "Copy link")
+                case .file:
+                    hint("return", "Open")
+                    hint("⌘return", "Reveal")
+                    hint("⌘Y", "Preview")
+                    hint("⌘C", "Copy path")
+                }
             }
             Spacer()
-            if !engine.results.isEmpty {
+            if !filterLayout.isEditing && !engine.results.isEmpty {
                 Text("\(engine.results.count) results")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+            }
+            if !filterLayout.isEditing {
+                filterEditButton
             }
             quitButton
         }
@@ -451,6 +697,30 @@ struct SearchView: View {
         .background(.ultraThinMaterial)
         .background(Color.white.opacity(colorScheme == .dark ? 0.015 : 0.08))
         .overlay(glassDivider, alignment: .top)
+    }
+
+    private var filterEditButton: some View {
+        Button {
+            filterLayout.isEditing = true
+        } label: {
+            footerControlLabel("Edit", systemImage: "slider.horizontal.3")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func footerControlLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: systemImage).font(.system(size: 10, weight: .semibold))
+            Text(title).font(.system(size: 10, weight: .medium))
+        }
+        .foregroundStyle(Color.accentColor)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.thinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.10 : 0.45), lineWidth: 0.5)
+        )
     }
 
     /// Fully quits Beacon (stops the background menu-bar process) so it can be
@@ -497,10 +767,27 @@ struct SearchView: View {
     }
 
     private func cycleFilter(forward: Bool) {
-        let all = FileType.allCases
+        guard !filterLayout.isEditing else { return }
+        let all = filterLayout.visibleFilters
         guard let current = all.firstIndex(of: engine.selectedType) else { return }
         let next = (current + (forward ? 1 : -1) + all.count) % all.count
         engine.selectedType = all[next]
+    }
+
+    private func syncFilterLayout() {
+        if !filterLayout.visibleFilters.contains(engine.selectedType) {
+            engine.selectedType = .all
+        }
+        engine.updateAllIncludedTypes(filterLayout.includedInAll)
+    }
+
+    private func finishEditing() {
+        filterLayout.cancelMove()
+        draggedFilter = nil
+        dragPointer = nil
+        dragGrabOffset = .zero
+        showAddFilters = false
+        filterLayout.isEditing = false
     }
 
     private var selectedResult: SearchResult? {
@@ -544,6 +831,16 @@ struct SearchView: View {
         } else {
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Messages.app"))
         }
+    }
+
+    private func jumpToSelectedMessage() {
+        guard let result = selectedResult, result.source == .message else { return }
+        openMessage(result)
+        MessageJumpController.jumpToMatch(
+            body: result.messageBody ?? "",
+            query: engine.queryText
+        )
+        onClose()
     }
 
     /// Navigate to the exact note via AppleScript (Notes is scriptable). Prefer
@@ -611,5 +908,28 @@ struct SearchView: View {
         default: value = result.messageBody ?? ""
         }
         pb.setString(value, forType: .string)
+    }
+}
+
+private struct FilterFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [FileType: CGRect] = [:]
+
+    static func reduce(value: inout [FileType: CGRect], nextValue: () -> [FileType: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct FilterJiggle: ViewModifier {
+    let active: Bool
+    let phase: Double
+
+    func body(content: Content) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !active)) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+            let angle = active ? sin(time * 19 + phase) * 1.2 : 0
+            content
+                .rotationEffect(.degrees(angle))
+                .offset(y: active ? cos(time * 19 + phase) * 0.25 : 0)
+        }
     }
 }

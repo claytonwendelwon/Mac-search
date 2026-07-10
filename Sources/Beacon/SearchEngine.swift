@@ -32,6 +32,7 @@ struct SearchResult: Identifiable, Hashable {
     let dateAdded: Date?  // when the file appeared in its folder (downloads/saves)
     let isFolder: Bool
     let isApp: Bool
+    let contentTypes: [String]
     let matchKind: MatchKind
 
     /// The most recent moment the user touched this item in any way - opened,
@@ -45,6 +46,8 @@ struct SearchResult: Identifiable, Hashable {
     let messageBody: String?
     let messageHandle: String?  // phone/email used to open the conversation
     let messageFromMe: Bool
+    let messageChatGUID: String?
+    let messageRowID: Int64?
 
     // Note-only field: AppleScript id used to navigate to the exact note.
     let noteID: String?
@@ -84,13 +87,16 @@ struct SearchResult: Identifiable, Hashable {
     /// File result.
     init(id: String, name: String, path: String, kind: String, size: Int64?,
          modified: Date?, lastUsed: Date?, dateAdded: Date?,
-         isFolder: Bool, isApp: Bool, matchKind: MatchKind) {
+         isFolder: Bool, isApp: Bool, contentTypes: [String] = [],
+         matchKind: MatchKind) {
         self.id = id; self.source = .file; self.name = name; self.path = path
         self.kind = kind; self.size = size; self.modified = modified
         self.lastUsed = lastUsed; self.dateAdded = dateAdded
         self.isFolder = isFolder; self.isApp = isApp
+        self.contentTypes = contentTypes
         self.matchKind = matchKind
         self.messageBody = nil; self.messageHandle = nil; self.messageFromMe = false
+        self.messageChatGUID = nil; self.messageRowID = nil
         self.noteID = nil
     }
 
@@ -107,10 +113,13 @@ struct SearchResult: Identifiable, Hashable {
         self.dateAdded = r.dateAdded
         self.isFolder = r.isFolder
         self.isApp = r.isApp
+        self.contentTypes = []
         self.matchKind = .name
         self.messageBody = nil
         self.messageHandle = nil
         self.messageFromMe = false
+        self.messageChatGUID = nil
+        self.messageRowID = nil
         self.noteID = nil
     }
 
@@ -127,10 +136,13 @@ struct SearchResult: Identifiable, Hashable {
         self.dateAdded = nil
         self.isFolder = false
         self.isApp = true
+        self.contentTypes = ["com.apple.application"]
         self.matchKind = .name
         self.messageBody = nil
         self.messageHandle = nil
         self.messageFromMe = false
+        self.messageChatGUID = nil
+        self.messageRowID = nil
         self.noteID = nil
     }
 
@@ -139,7 +151,16 @@ struct SearchResult: Identifiable, Hashable {
     init(message m: MessageRecord, contactName: String?) {
         self.id = "msg:\(m.rowid)"
         self.source = .message
-        let who = contactName ?? (m.handle.isEmpty ? "Unknown" : m.handle)
+        let who: String
+        if !m.chatName.isEmpty {
+            who = m.chatName
+        } else if m.isGroup {
+            who = "Group Chat"
+        } else {
+            who = contactName ?? (m.conversationHandle.isEmpty
+                ? (m.isFromMe ? "You" : "Unknown")
+                : m.conversationHandle)
+        }
         self.name = who
         self.path = ""
         self.kind = "Message"
@@ -149,10 +170,13 @@ struct SearchResult: Identifiable, Hashable {
         self.dateAdded = nil
         self.isFolder = false
         self.isApp = false
+        self.contentTypes = []
         self.matchKind = .content
         self.messageBody = m.text
-        self.messageHandle = m.handle
+        self.messageHandle = m.conversationHandle
         self.messageFromMe = m.isFromMe
+        self.messageChatGUID = m.chatGUID.isEmpty ? nil : m.chatGUID
+        self.messageRowID = m.rowid
         self.noteID = nil
     }
 
@@ -169,10 +193,13 @@ struct SearchResult: Identifiable, Hashable {
         self.dateAdded = nil
         self.isFolder = false
         self.isApp = false
+        self.contentTypes = []
         self.matchKind = .content
         self.messageBody = n.body.isEmpty ? n.snippet : n.body
         self.messageHandle = nil
         self.messageFromMe = false
+        self.messageChatGUID = nil
+        self.messageRowID = nil
         self.noteID = n.appleScriptID
     }
 
@@ -191,10 +218,13 @@ struct SearchResult: Identifiable, Hashable {
         self.dateAdded = nil
         self.isFolder = false
         self.isApp = false
+        self.contentTypes = []
         self.matchKind = .content
         self.messageBody = c.text
         self.messageHandle = nil
         self.messageFromMe = false
+        self.messageChatGUID = nil
+        self.messageRowID = nil
         self.noteID = nil
     }
 
@@ -213,10 +243,13 @@ struct SearchResult: Identifiable, Hashable {
         self.dateAdded = nil
         self.isFolder = false
         self.isApp = false
+        self.contentTypes = []
         self.matchKind = .content
         self.messageBody = h.url
         self.messageHandle = nil
         self.messageFromMe = false
+        self.messageChatGUID = nil
+        self.messageRowID = nil
         self.noteID = nil
     }
 
@@ -233,10 +266,13 @@ struct SearchResult: Identifiable, Hashable {
         self.dateAdded = nil
         self.isFolder = false
         self.isApp = false
+        self.contentTypes = []
         self.matchKind = .name
         self.messageBody = s.subtitle
         self.messageHandle = nil
         self.messageFromMe = false
+        self.messageChatGUID = nil
+        self.messageRowID = nil
         self.noteID = nil
     }
 }
@@ -338,6 +374,7 @@ final class SearchEngine: ObservableObject {
 
     private var pendingSearch: DispatchWorkItem?
     private var currentTokens: [String] = []
+    private var allIncludedTypes = Set(FileType.allCases.filter(\.includedInAll))
 
     /// Content search (text inside files) only kicks in once the query is long
     /// enough to be meaningful; 1-2 characters would drown the list in noise
@@ -346,6 +383,14 @@ final class SearchEngine: ObservableObject {
     /// Whether the content query was started for the current search. When it
     /// wasn't, its stale results from a previous search must not be read.
     private var contentQueryActive = false
+
+    /// Applies the user's visible filter selection to the blended All view.
+    /// Hidden filters stop contributing immediately.
+    func updateAllIncludedTypes(_ types: Set<FileType>) {
+        guard allIncludedTypes != types else { return }
+        allIncludedTypes = types
+        if selectedType == .all { scheduleSearch() }
+    }
 
     private static let defaultSortDescriptors = [
         NSSortDescriptor(key: NSMetadataItemLastUsedDateKey, ascending: false),
@@ -499,8 +544,12 @@ final class SearchEngine: ObservableObject {
         messageResults = []
         noteResults = []
         if selectedType == .all {
-            gatherAppsForAll(tokens: currentTokens, token: token)
-            gatherDatabasesForAll(tokens: currentTokens, token: token)
+            if allIncludedTypes.contains(.apps) {
+                gatherAppsForAll(tokens: currentTokens, token: token)
+            }
+            if allIncludedTypes.contains(.messages) || allIncludedTypes.contains(.notes) {
+                gatherDatabasesForAll(tokens: currentTokens, token: token)
+            }
         }
     }
 
@@ -525,22 +574,35 @@ final class SearchEngine: ObservableObject {
     /// Skips any source that lacks Full Disk Access (no prompt in All mode -
     /// the dedicated chips own that flow).
     private func gatherDatabasesForAll(tokens: [String], token: Int) {
+        let includeMessages = allIncludedTypes.contains(.messages)
+        let includeNotes = allIncludedTypes.contains(.notes)
         messageQueue.async { [weak self] in
             guard let self else { return }
-            self.messageStore.ensureLoaded()
-            self.contacts.ensureLoaded()
             let cancelled = self.cancellation(for: token)
-            let resolver: ((String) -> String?)? =
-                self.contacts.isReady ? { self.contacts.name(for: $0) } : nil
-            let msgs: [SearchResult] = self.messageStore.needsFullDiskAccess ? [] :
-                self.messageStore.search(tokens: tokens, limit: self.allMessageCap,
-                                         nameResolver: resolver, isCancelled: cancelled)
-                    .map { SearchResult(message: $0, contactName: self.contacts.name(for: $0.handle)) }
+            var msgs: [SearchResult] = []
+            if includeMessages {
+                self.messageStore.ensureLoaded()
+                self.contacts.ensureLoaded()
+                let resolver: ((String) -> String?)? =
+                    self.contacts.isReady ? { self.contacts.name(for: $0) } : nil
+                if !self.messageStore.needsFullDiskAccess {
+                    msgs = self.messageStore.search(tokens: tokens, limit: self.allMessageCap,
+                                                    nameResolver: resolver, isCancelled: cancelled)
+                        .map {
+                            SearchResult(message: $0,
+                                         contactName: self.contacts.name(for: $0.conversationHandle))
+                        }
+                }
+            }
 
-            self.notesStore.ensureLoaded()
-            let notes: [SearchResult] = self.notesStore.needsFullDiskAccess ? [] :
-                self.notesStore.search(tokens: tokens, limit: self.allNoteCap,
-                                       isCancelled: cancelled).map { SearchResult(note: $0) }
+            var notes: [SearchResult] = []
+            if includeNotes {
+                self.notesStore.ensureLoaded()
+                if !self.notesStore.needsFullDiskAccess {
+                    notes = self.notesStore.search(tokens: tokens, limit: self.allNoteCap,
+                                                   isCancelled: cancelled).map { SearchResult(note: $0) }
+                }
+            }
 
             DispatchQueue.main.async {
                 guard token == self.searchToken, self.selectedType == .all else { return }
@@ -559,8 +621,12 @@ final class SearchEngine: ObservableObject {
             let filesAndApps = mergeScannedApps(into: fileResults).prefix(allFileCap)
             var combined: [SearchResult] = []
             combined += filesAndApps
-            combined += messageResults.prefix(allMessageCap)
-            combined += noteResults.prefix(allNoteCap)
+            if allIncludedTypes.contains(.messages) {
+                combined += messageResults.prefix(allMessageCap)
+            }
+            if allIncludedTypes.contains(.notes) {
+                combined += noteResults.prefix(allNoteCap)
+            }
             results = Array(combined.prefix(displayCap))
         } else {
             results = fileResults
@@ -601,7 +667,8 @@ final class SearchEngine: ObservableObject {
             let hits = self.messageStore.search(tokens: tokens, nameResolver: resolver,
                                                 isCancelled: self.cancellation(for: token))
             let mapped = hits.map { rec in
-                SearchResult(message: rec, contactName: self.contacts.name(for: rec.handle))
+                SearchResult(message: rec,
+                             contactName: self.contacts.name(for: rec.conversationHandle))
             }
 
             DispatchQueue.main.async {
@@ -775,7 +842,8 @@ final class SearchEngine: ObservableObject {
     // MARK: - Predicates
 
     /// Each token must appear in the display name OR the on-disk file name.
-    private func namePredicate(tokens: [String], trees: [String]) -> NSPredicate {
+    private func namePredicate(tokens: [String], trees: [String],
+                               excludedTrees: [String] = []) -> NSPredicate {
         let perToken: [NSPredicate] = tokens.map { token in
             NSCompoundPredicate(orPredicateWithSubpredicates: [
                 NSPredicate(format: "kMDItemDisplayName CONTAINS[cd] %@", token),
@@ -783,21 +851,31 @@ final class SearchEngine: ObservableObject {
             ])
         }
         let base = Self.combine(perToken, type: .and) ?? NSPredicate(value: true)
-        return applyTypeFilter(base, trees: trees)
+        return applyTypeFilter(base, trees: trees, excludedTrees: excludedTrees)
     }
 
     /// Each token must appear in the indexed text contents of the file.
-    private func contentPredicate(tokens: [String], trees: [String]) -> NSPredicate {
+    private func contentPredicate(tokens: [String], trees: [String],
+                                  excludedTrees: [String] = []) -> NSPredicate {
         let perToken = tokens.map { NSPredicate(format: "kMDItemTextContent CONTAINS[cd] %@", $0) }
         let base = Self.combine(perToken, type: .and) ?? NSPredicate(value: true)
-        return applyTypeFilter(base, trees: trees)
+        return applyTypeFilter(base, trees: trees, excludedTrees: excludedTrees)
     }
 
-    private func applyTypeFilter(_ base: NSPredicate, trees: [String]) -> NSPredicate {
-        guard !trees.isEmpty else { return base }
-        let typePredicates = trees.map { NSPredicate(format: "kMDItemContentTypeTree == %@", $0) }
-        guard let typePredicate = Self.combine(typePredicates, type: .or) else { return base }
-        return NSCompoundPredicate(andPredicateWithSubpredicates: [base, typePredicate])
+    private func applyTypeFilter(_ base: NSPredicate, trees: [String],
+                                 excludedTrees: [String]) -> NSPredicate {
+        var predicates = [base]
+        if !trees.isEmpty {
+            let typePredicates = trees.map { NSPredicate(format: "kMDItemContentTypeTree == %@", $0) }
+            if let included = Self.combine(typePredicates, type: .or) {
+                predicates.append(included)
+            }
+        }
+        predicates += excludedTrees.map {
+            NSCompoundPredicate(notPredicateWithSubpredicate:
+                NSPredicate(format: "kMDItemContentTypeTree == %@", $0))
+        }
+        return Self.combine(predicates, type: .and) ?? base
     }
 
     /// Combine predicates without ever producing a single-element compound
@@ -851,7 +929,11 @@ final class SearchEngine: ObservableObject {
         query.disableUpdates()
         defer { query.enableUpdates() }
 
-        let count = min(query.resultCount, cap)
+        // Hidden categories may occupy any number of leading Spotlight rows.
+        // Continue until enough accepted rows are found so customization never
+        // makes valid visible results disappear behind an arbitrary pre-cap.
+        let count = selectedType == .all ? query.resultCount : min(query.resultCount, cap)
+        var added = 0
         for index in 0..<count {
             guard let item = query.result(at: index) as? NSMetadataItem else { continue }
             guard let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else { continue }
@@ -870,11 +952,41 @@ final class SearchEngine: ObservableObject {
             let isFolder = contentType.contains("public.folder")
             let isApp = contentType.contains("com.apple.application")
 
-            merged[path] = SearchResult(id: path, name: name, path: path, kind: kind,
-                                        size: size, modified: modified, lastUsed: lastUsed,
-                                        dateAdded: dateAdded,
-                                        isFolder: isFolder, isApp: isApp, matchKind: matchKind)
+            let result = SearchResult(id: path, name: name, path: path, kind: kind,
+                                      size: size, modified: modified, lastUsed: lastUsed,
+                                      dateAdded: dateAdded,
+                                      isFolder: isFolder, isApp: isApp,
+                                      contentTypes: contentType, matchKind: matchKind)
+            if selectedType == .all && !isIncludedInAll(result) { continue }
+            merged[path] = result
+            added += 1
+            if added >= cap { break }
         }
+    }
+
+    /// Assign each indexed item to its most specific filter so overlapping UTI
+    /// trees (for example PDF also conforming to document) do not cause hiding
+    /// Docs to accidentally suppress a still-visible PDF source.
+    private func isIncludedInAll(_ result: SearchResult) -> Bool {
+        let type: FileType?
+        if result.isApp {
+            type = .apps
+        } else if result.isFolder {
+            type = .folders
+        } else if result.contentTypes.contains("com.adobe.pdf") {
+            type = .pdfs
+        } else if result.contentTypes.contains("public.image") {
+            type = .photos
+        } else if result.contentTypes.contains("public.movie") {
+            type = .videos
+        } else if result.contentTypes.contains("public.audio") {
+            type = .audio
+        } else if !Set(result.contentTypes).isDisjoint(with: Set(FileType.docs.contentTypeTrees)) {
+            type = .docs
+        } else {
+            type = nil // Unknown file types remain part of broad local search.
+        }
+        return type.map(allIncludedTypes.contains) ?? true
     }
 
     // MARK: - Ranking

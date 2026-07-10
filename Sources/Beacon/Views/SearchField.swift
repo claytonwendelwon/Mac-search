@@ -6,6 +6,8 @@ import AppKit
 struct SearchField: NSViewRepresentable {
     @Binding var text: String
     var focusToken: Int
+    var placeholder: String = "Search your Mac…"
+    var isEnabled: Bool = true
 
     var onMoveDown: () -> Void
     var onMoveUp: () -> Void
@@ -13,6 +15,7 @@ struct SearchField: NSViewRepresentable {
     var onReveal: () -> Void
     var onPreview: () -> Void
     var onCopy: () -> Void
+    var onJump: () -> Void
     var onCancel: () -> Void
     var onCycleFilter: (_ forward: Bool) -> Void
 
@@ -24,13 +27,14 @@ struct SearchField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.isEditable = true
-        field.isSelectable = true
+        field.isEditable = isEnabled
+        field.isSelectable = isEnabled
+        field.isEnabled = isEnabled
         field.font = .systemFont(ofSize: 23, weight: .regular)
-        field.placeholderString = "Search your Mac…"
+        field.placeholderString = placeholder
         field.textColor = .labelColor
         field.placeholderAttributedString = NSAttributedString(
-            string: "Search your Mac…",
+            string: placeholder,
             attributes: [
                 .foregroundColor: NSColor.secondaryLabelColor,
                 .font: NSFont.systemFont(ofSize: 23, weight: .regular)
@@ -45,8 +49,25 @@ struct SearchField: NSViewRepresentable {
     }
 
     func updateNSView(_ field: CommandTextField, context: Context) {
+        field.isEnabled = isEnabled
+        field.isEditable = isEnabled
+        field.isSelectable = isEnabled
+        field.placeholderString = placeholder
+        field.placeholderAttributedString = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: NSFont.systemFont(ofSize: 23, weight: .regular)
+            ]
+        )
         if field.stringValue != text {
             field.stringValue = text
+        }
+        if !isEnabled {
+            if field.window?.firstResponder === field.currentEditor() {
+                field.window?.makeFirstResponder(nil)
+            }
+            return
         }
         // Re-focus whenever the panel asks us to (hotkey re-open).
         if context.coordinator.lastFocusToken != focusToken {
@@ -100,6 +121,7 @@ struct SearchField: NSViewRepresentable {
             switch characters.lowercased() {
             case "y": parent.onPreview(); return true
             case "c": parent.onCopy(); return true
+            case "j": parent.onJump(); return true
             case "\r": parent.onReveal(); return true
             default: return false
             }

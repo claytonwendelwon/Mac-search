@@ -7,10 +7,28 @@ struct MessageRecord {
     let date: Date
     let isFromMe: Bool
     let handle: String   // the other party's phone/email ("" if unknown / group)
+    let chatIdentifier: String
+    let chatGUID: String
+    let chatName: String
     let text: String
     /// Case/diacritic-folded "text handle", precomputed once at load so each
     /// keystroke filters without re-folding the whole history.
     let folded: String
+
+    var isGroup: Bool {
+        chatGUID.contains(";+;") || chatIdentifier.lowercased().hasPrefix("chat")
+    }
+
+    /// Best available one-to-one conversation target. Sent rows often have no
+    /// message.handle_id, while their joined chat still identifies the peer.
+    var conversationHandle: String {
+        guard !isGroup else { return "" }
+        if !handle.isEmpty { return handle }
+        if chatIdentifier.contains("@") || chatIdentifier.contains(where: \.isNumber) {
+            return chatIdentifier
+        }
+        return ""
+    }
 }
 
 /// Reads and searches the macOS Messages database (`~/Library/Messages/chat.db`).
@@ -81,7 +99,7 @@ final class MessageStore {
             let textQuality = SearchText.matchQuality(rec.folded, tokens: tokens)
             let nameQuality: SearchText.MatchQuality?
             if let nameResolver,
-               let name = foldedName(for: rec.handle, resolve: nameResolver) {
+               let name = foldedName(for: rec.conversationHandle, resolve: nameResolver) {
                 nameQuality = SearchText.matchQuality(name, tokens: tokens)
             } else {
                 nameQuality = nil
@@ -137,10 +155,24 @@ final class MessageStore {
         }
         sqlite3_busy_timeout(db, 1500)
 
+        let chatColumns = Self.columns(db, table: "chat")
+        let chatNameExpression = chatColumns.contains("display_name")
+            ? "COALESCE(c.display_name, '')"
+            : "''"
         let sql = """
-        SELECT m.ROWID, m.date, m.is_from_me, COALESCE(h.id, ''), m.text, m.attributedBody
+        SELECT m.ROWID, m.date, m.is_from_me, COALESCE(h.id, ''),
+               m.text, m.attributedBody,
+               COALESCE(c.chat_identifier, ''), COALESCE(c.guid, ''),
+               \(chatNameExpression)
         FROM message AS m
         LEFT JOIN handle AS h ON m.handle_id = h.ROWID
+        LEFT JOIN chat AS c ON c.ROWID = (
+            SELECT cmj.chat_id
+            FROM chat_message_join AS cmj
+            WHERE cmj.message_id = m.ROWID
+            ORDER BY cmj.chat_id
+            LIMIT 1
+        )
         ORDER BY m.date DESC
         LIMIT \(loadCap);
         """
@@ -163,6 +195,9 @@ final class MessageStore {
             let rawDate = sqlite3_column_int64(stmt, 1)
             let isFromMe = sqlite3_column_int(stmt, 2) == 1
             let handle = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
+            let chatIdentifier = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? ""
+            let chatGUID = sqlite3_column_text(stmt, 7).map { String(cString: $0) } ?? ""
+            let chatName = sqlite3_column_text(stmt, 8).map { String(cString: $0) } ?? ""
 
             var text = sqlite3_column_text(stmt, 4).map { String(cString: $0) } ?? ""
             if !text.isEmpty {
@@ -181,8 +216,12 @@ final class MessageStore {
                                          date: Self.appleDate(rawDate),
                                          isFromMe: isFromMe,
                                          handle: handle,
+                                         chatIdentifier: chatIdentifier,
+                                         chatGUID: chatGUID,
+                                         chatName: chatName,
                                          text: text,
-                                         folded: (text + " " + handle).searchFolded))
+                                         folded: (text + " " + handle + " " + chatIdentifier
+                                                  + " " + chatName).searchFolded))
         }
 
         cache = records
@@ -191,6 +230,21 @@ final class MessageStore {
     }
 
     // MARK: - Helpers
+
+    private static func columns(_ db: OpaquePointer?, table: String) -> Set<String> {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &stmt, nil) == SQLITE_OK else {
+            return []
+        }
+        defer { sqlite3_finalize(stmt) }
+        var names = Set<String>()
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let value = sqlite3_column_text(stmt, 1) {
+                names.insert(String(cString: value))
+            }
+        }
+        return names
+    }
 
     /// Messages stores dates as nanoseconds (modern) or seconds (legacy) since
     /// the 2001-01-01 reference date.

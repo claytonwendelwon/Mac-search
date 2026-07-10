@@ -33,7 +33,8 @@ if ! swift build -c "$CONFIG"; then
   SOURCE_FILES=()
   while IFS= read -r file; do
     SOURCE_FILES+=("$file")
-  done < <(git ls-files 'Sources/Beacon/*.swift' 'Sources/Beacon/**/*.swift')
+  done < <(git ls-files --cached --others --exclude-standard \
+    'Sources/Beacon/*.swift' 'Sources/Beacon/**/*.swift')
 
   SWIFT_FLAGS=(-swift-version 5 -target "$(uname -m)-apple-macosx13.0")
   if [[ "$CONFIG" == "release" ]]; then
@@ -47,6 +48,7 @@ if ! swift build -c "$CONFIG"; then
     -framework SwiftUI \
     -framework AppKit \
     -framework Carbon \
+    -framework ApplicationServices \
     -framework UniformTypeIdentifiers \
     -framework QuickLook \
     -framework QuickLookThumbnailing \

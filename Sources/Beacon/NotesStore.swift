@@ -18,7 +18,7 @@ struct NoteRecord {
 /// Reads and searches the Apple Notes database
 /// (`~/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite`).
 ///
-/// Like `MessageStore`, it opens read-only and requires Full Disk Access. Note
+/// It opens read-only with WAL awareness and requires Full Disk Access. Note
 /// bodies are stored as gzip-compressed protobuf blobs, so we decompress them
 /// and extract the text heuristically (the note's title and Notes' own snippet
 /// are plain columns and always available as a fallback).
@@ -78,8 +78,12 @@ final class NotesStore {
         var db: OpaquePointer?
         defer { if db != nil { sqlite3_close(db) } }
 
+        // Do not use `immutable=1` here: Notes is a live WAL database and that
+        // flag can make SQLite ignore uncheckpointed rows, producing a
+        // successful but empty load. Read-only mode still prevents writes while
+        // allowing SQLite to merge the current -wal snapshot.
         let encoded = dbPath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? dbPath
-        let uri = "file:\(encoded)?immutable=1"
+        let uri = "file:\(encoded)?mode=ro"
         let openRC = sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil)
         guard openRC == SQLITE_OK else {
             Log.write("NotesStore: open failed rc=\(openRC)")

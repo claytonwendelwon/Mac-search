@@ -24,9 +24,27 @@ enum SelfInstaller {
         // If an older copy is running from /Applications, ask it to quit so the
         // bundle can be replaced.
         let me = NSRunningApplication.current
-        for app in NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
-        where app != me {
+        let previousApps = NSRunningApplication.runningApplications(
+            withBundleIdentifier: Bundle.main.bundleIdentifier ?? ""
+        ).filter { $0 != me }
+        for app in previousApps {
             app.terminate()
+        }
+        let gracefulDeadline = Date().addingTimeInterval(2)
+        while previousApps.contains(where: { !$0.isTerminated }), Date() < gracefulDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        for app in previousApps where !app.isTerminated {
+            Log.write("SelfInstaller: force-quitting stale installed instance pid \(app.processIdentifier)")
+            app.forceTerminate()
+        }
+        let forcedDeadline = Date().addingTimeInterval(1)
+        while previousApps.contains(where: { !$0.isTerminated }), Date() < forcedDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if previousApps.contains(where: { !$0.isTerminated }) {
+            Log.write("SelfInstaller: prior instance would not exit; continuing from current location")
+            return false
         }
 
         do {
@@ -41,16 +59,26 @@ enum SelfInstaller {
             return false
         }
 
-        // Relaunch from /Applications once this process has exited. The helper
-        // shell outlives us, so there's no moment with two Beacons fighting
-        // over the global hotkey.
-        let script = "sleep 0.5; /usr/bin/open \"\(destination)\""
+        // Relaunch only after this exact process has exited. A fixed delay can
+        // race Launch Services, which then routes the open request back to the
+        // dying DMG instance. `open -n` guarantees a fresh installed process.
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        let quotedDestination = "'" + destination.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let script = """
+        while /bin/kill -0 \(currentPID) 2>/dev/null; do /bin/sleep 0.1; done
+        /usr/bin/open -n \(quotedDestination)
+        """
         let relauncher = Process()
         relauncher.executableURL = URL(fileURLWithPath: "/bin/sh")
         relauncher.arguments = ["-c", script]
-        try? relauncher.run()
+        do {
+            try relauncher.run()
+        } catch {
+            Log.write("SelfInstaller: could not start relaunch helper (\(error.localizedDescription)); continuing in place")
+            return false
+        }
 
-        Log.write("SelfInstaller: installed; relaunching from /Applications")
+        Log.write("SelfInstaller: installed; helper will relaunch after pid \(currentPID) exits")
         NSApp.terminate(nil)
         return true
     }

@@ -79,9 +79,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupPanel() {
         let panel = SearchPanel(contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
-        let root = SearchView(engine: engine, onClose: { [weak self] in
-            self?.hidePanel()
-        })
+        let root = SearchView(
+            engine: engine,
+            onClose: { [weak self] in self?.hidePanel() },
+            onEditingChanged: { [weak panel] editing in
+                panel?.isMovableByWindowBackground = !editing
+            }
+        )
         let hosting = NSHostingView(rootView: root)
         hosting.frame = panel.contentView?.bounds ?? .zero
         hosting.autoresizingMask = [.width, .height]
@@ -148,6 +152,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSWindowDelegate {
     // Dismiss when the user clicks away / switches apps.
     func windowDidResignKey(_ notification: Notification) {
+        if FilterLayoutStore.shared.isEditing {
+            FilterLayoutStore.shared.cancelMove()
+            FilterLayoutStore.shared.isEditing = false
+            panel?.isMovableByWindowBackground = true
+        }
+        // First launch must remain discoverable even if Finder or the DMG takes
+        // focus during relaunch. Escape still closes it, and normal click-away
+        // behavior begins after the welcome hint is dismissed.
+        guard UserDefaults.standard.bool(forKey: "hasSeenWelcome") else { return }
         hidePanel()
     }
 }

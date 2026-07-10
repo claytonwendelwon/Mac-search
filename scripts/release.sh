@@ -84,7 +84,8 @@ if ! swift build -c release; then
   SOURCE_FILES=()
   while IFS= read -r file; do
     SOURCE_FILES+=("$file")
-  done < <(git ls-files 'Sources/Beacon/*.swift' 'Sources/Beacon/**/*.swift')
+  done < <(git ls-files --cached --others --exclude-standard \
+    'Sources/Beacon/*.swift' 'Sources/Beacon/**/*.swift')
 
   xcrun swiftc -swift-version 5 \
     -target "$(uname -m)-apple-macosx13.0" \
@@ -94,6 +95,7 @@ if ! swift build -c release; then
     -framework SwiftUI \
     -framework AppKit \
     -framework Carbon \
+    -framework ApplicationServices \
     -framework UniformTypeIdentifiers \
     -framework QuickLook \
     -framework QuickLookThumbnailing \
