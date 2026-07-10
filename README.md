@@ -60,6 +60,17 @@ Clipboard, browser history, and System Settings shortcuts.
 The app is signed with a Developer ID and notarized by Apple, so it opens
 without security warnings.
 
+## Website
+
+An Apple-style marketing site lives in [`website/`](website/). Preview locally:
+
+```bash
+bash website/serve.sh
+```
+
+Then open [http://localhost:8080](http://localhost:8080). To publish on GitHub Pages,
+set the source to the `/website` folder on the `main` branch in repo Settings → Pages.
+
 ## Why Beacon?
 
 macOS already has Spotlight and Finder search, but both have sharp edges when
