@@ -7,31 +7,7 @@
   <title>Beacon — macOS search launcher</title>
   <link rel="stylesheet" href="../css/styles.css">
 </head>
-<body>
-
-  <nav class="globalnav" aria-label="Global">
-    <div class="globalnav-inner">
-      <a class="globalnav-logo" href="../index.html">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <circle cx="10.5" cy="10.5" r="5.5"/>
-          <line x1="14.5" y1="14.5" x2="20" y2="20"/>
-          <circle cx="10.5" cy="10.5" r="1.5" fill="currentColor" stroke="none"/>
-        </svg>
-        Beacon
-      </a>
-      <ul class="globalnav-links">
-        <li><a href="index.html">Beacon</a></li>
-        <li><a href="#features">Features</a></li>
-        <li><a href="#download">Download</a></li>
-        <li><a href="#privacy">Privacy</a></li>
-        <li><a href="https://github.com/claytonwendelwon/Mac-search">GitHub</a></li>
-      </ul>
-      <div class="globalnav-actions">
-        <a href="https://github.com/claytonwendelwon/Mac-search/search">Search</a>
-        <a href="#download">Download</a>
-      </div>
-    </div>
-  </nav>
+<body class="product-page">
 
   <nav class="subnav" aria-label="Beacon">
     <div class="subnav-inner">
@@ -56,57 +32,9 @@
       <a class="link-more" href="#download">Download</a>
     </div>
     <div class="hero-visual">
-      <div class="desktop-mock fade-in">
-        <div class="desktop-screen">
-          <div class="menu-bar-mock">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.8)" stroke-width="1.8"><circle cx="10.5" cy="10.5" r="5.5"/><line x1="14.5" y1="14.5" x2="20" y2="20"/><circle cx="10.5" cy="10.5" r="1.5" fill="rgba(255,255,255,0.8)" stroke="none"/></svg>
-            Option + S
-          </div>
-          <div class="search-mock search-mock-dark">
-            <div class="search-mock-field">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="16" y1="16" x2="21" y2="21"/></svg>
-              <span>design mockup</span>
-            </div>
-            <div class="search-mock-chips">
-              <span class="chip active">All</span>
-              <span class="chip">Recents</span>
-              <span class="chip">Apps</span>
-              <span class="chip">Messages</span>
-              <span class="chip">Notes</span>
-              <span class="chip">History</span>
-              <span class="chip">Docs</span>
-              <span class="chip">Settings</span>
-            </div>
-            <div class="search-mock-results">
-              <div class="result-row selected">
-                <div class="result-icon file">🎨</div>
-                <div class="result-text">
-                  <div class="result-title">Landing Page <strong>Design</strong> <strong>Mockup</strong>.fig</div>
-                  <div class="result-meta">Documents · 12 min ago</div>
-                </div>
-              </div>
-              <div class="result-row">
-                <div class="result-icon app">⚡</div>
-                <div class="result-text">
-                  <div class="result-title">Figma</div>
-                  <div class="result-meta">Applications</div>
-                </div>
-              </div>
-              <div class="result-row">
-                <div class="result-icon msg">💬</div>
-                <div class="result-text">
-                  <div class="result-title">Alex — "Updated the <strong>design</strong> files"</div>
-                  <div class="result-meta">Messages · 1 hr ago</div>
-                </div>
-              </div>
-            </div>
-            <div class="search-mock-footer">
-              <span>↵ Open</span><span>⌘↵ Reveal</span><span>⌘Y Preview</span><span>Tab Filter</span>
-            </div>
-          </div>
-        </div>
-        <div class="desktop-chin"></div>
-      </div>
+      <img class="product-shot product-shot-hero fade-in"
+           src="../assets/beacon-recents-wide.jpg"
+           alt="Beacon Recents search floating over a colorful macOS desktop">
     </div>
   </section>
 
@@ -116,15 +44,31 @@
       <h2 class="headline-section">Get to know Beacon.</h2>
     </div>
     <ul class="tab-list" role="tablist">
-      <li><button type="button" class="active" data-tab-button="recents" role="tab">Recents</button></li>
+      <li><button type="button" class="active" data-tab-button="all" role="tab">All</button></li>
+      <li><button type="button" data-tab-button="recents" role="tab">Recents</button></li>
       <li><button type="button" data-tab-button="messages" role="tab">Messages</button></li>
-      <li><button type="button" data-tab-button="search" role="tab">Search</button></li>
+      <li><button type="button" data-tab-button="history" role="tab">History</button></li>
+      <li><button type="button" data-tab-button="folders" role="tab">Folders</button></li>
+      <li><button type="button" data-tab-button="apps" role="tab">Apps</button></li>
       <li><button type="button" data-tab-button="privacy" role="tab">Privacy</button></li>
-      <li><button type="button" data-tab-button="keyboard" role="tab">Keyboard</button></li>
-      <li><button type="button" data-tab-button="native" role="tab">Native</button></li>
     </ul>
 
-    <div class="tab-panel active fade-in" data-tab-panel="recents" id="recents">
+    <div class="tab-panel active fade-in" data-tab-panel="all">
+      <div class="tab-panel-copy">
+        <h2>Everything, intelligently blended.</h2>
+        <p>All brings files, apps, messages, and notes into one ranked view, so the right result can surface without choosing a source first.</p>
+        <h3>Focused when you need it.</h3>
+        <p>Switch to any dedicated filter with one click or cycle through them from the keyboard.</p>
+        <a class="link-more" href="#lineup">Explore every filter</a>
+      </div>
+      <div class="tab-panel-visual">
+        <img class="product-shot product-shot-detail"
+             src="../assets/beacon-all-close.png"
+             alt="Beacon All filter showing blended search sources">
+      </div>
+    </div>
+
+    <div class="tab-panel" data-tab-panel="recents" id="recents">
       <div class="tab-panel-copy">
         <h2>Recents that actually work.</h2>
         <p>Spotlight and Finder Recents miss freshly saved files all the time. Beacon scans your filesystem directly — so screenshots, downloads, and exports appear the moment they land on disk.</p>
@@ -133,34 +77,9 @@
         <a class="link-more" href="#download">Download Beacon</a>
       </div>
       <div class="tab-panel-visual">
-        <div class="search-mock">
-          <div class="search-mock-chips" style="border-top:none;padding-top:14px">
-            <span class="chip active">Recents</span>
-          </div>
-          <div class="search-mock-results">
-            <div class="result-row selected">
-              <div class="result-icon file">📸</div>
-              <div class="result-text">
-                <div class="result-title">Screenshot 2026-07-09 at 8.47.12 PM.png</div>
-                <div class="result-meta">Desktop · just now</div>
-              </div>
-            </div>
-            <div class="result-row">
-              <div class="result-icon file">📦</div>
-              <div class="result-text">
-                <div class="result-title">Beacon-1.0.4.dmg</div>
-                <div class="result-meta">Downloads · 3 min ago</div>
-              </div>
-            </div>
-            <div class="result-row">
-              <div class="result-icon file">📄</div>
-              <div class="result-text">
-                <div class="result-title">Invoice-March.pdf</div>
-                <div class="result-meta">Documents · 18 min ago</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <img class="product-shot product-shot-detail"
+             src="../assets/beacon-recents-wide.jpg"
+             alt="Recent downloads appearing immediately in Beacon">
       </div>
     </div>
 
@@ -173,136 +92,107 @@
         <a class="link-more" href="#privacy">Privacy & permissions</a>
       </div>
       <div class="tab-panel-visual">
-        <div class="search-mock">
-          <div class="search-mock-field">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="16" y1="16" x2="21" y2="21"/></svg>
-            <span style="font-size:17px">dinner plans</span>
-          </div>
-          <div class="search-mock-chips">
-            <span class="chip active">Messages</span>
-          </div>
-          <div class="search-mock-results">
-            <div class="result-row selected">
-              <div class="result-icon msg">💬</div>
-              <div class="result-text">
-                <div class="result-title">Sarah — "What time for <strong>dinner</strong> <strong>plans</strong>?"</div>
-                <div class="result-meta">Today · 5:42 PM</div>
-              </div>
-            </div>
-            <div class="result-row">
-              <div class="result-icon msg">💬</div>
-              <div class="result-text">
-                <div class="result-title">Dad — "Changed our <strong>dinner</strong> reservation to 7"</div>
-                <div class="result-meta">Yesterday</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <img class="product-shot product-shot-detail"
+             src="../assets/beacon-messages-close.png"
+             alt="Message search results in Beacon">
       </div>
     </div>
 
-    <div class="tab-panel" data-tab-panel="search">
+    <div class="tab-panel" data-tab-panel="history" id="history">
       <div class="tab-panel-copy">
-        <h2>Search by name and content.</h2>
-        <p>Beacon uses Spotlight where it's strong — file names and document content inside PDFs, Office files, and iWork docs. Content matches kick in at 3+ characters and are flagged with a "text match" badge.</p>
-        <h3>Smart ranking.</h3>
-        <p>Exact name matches and your own files rank first. Folders surface reliably. Every source is case- and accent-insensitive — "jose" finds "José."</p>
-        <a class="link-more" href="#lineup">Explore filters</a>
+        <h2>Every page you visited.</h2>
+        <p>Search Safari, Chrome, Brave, Edge, and Arc history from one focused view. Favicons make results recognizable before you finish reading the title.</p>
+        <h3>Open the page instantly.</h3>
+        <p>Press Return to reopen a result in your browser, or ⌘C to copy its link.</p>
       </div>
       <div class="tab-panel-visual">
-        <div class="search-mock">
-          <div class="search-mock-field">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="16" y1="16" x2="21" y2="21"/></svg>
-            <span style="font-size:17px">budget forecast</span>
-          </div>
-          <div class="search-mock-results">
-            <div class="result-row selected">
-              <div class="result-icon file">📄</div>
-              <div class="result-text">
-                <div class="result-title">Annual <strong>Budget</strong> <strong>Forecast</strong>.xlsx</div>
-                <div class="result-meta">Documents · text match</div>
-              </div>
-            </div>
-            <div class="result-row">
-              <div class="result-icon file">📄</div>
-              <div class="result-text">
-                <div class="result-title">Q4 <strong>Budget</strong> Review.pdf</div>
-                <div class="result-meta">Downloads · text match</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <img class="product-shot product-shot-detail"
+             src="../assets/beacon-history-close.png"
+             alt="Browser history results with favicons in Beacon">
+      </div>
+    </div>
+
+    <div class="tab-panel" data-tab-panel="folders" id="folders">
+      <div class="tab-panel-copy">
+        <h2>Folders surface reliably.</h2>
+        <p>Type part of a project or directory name and Beacon brings matching folders forward instead of burying them beneath web suggestions.</p>
+        <h3>Open or reveal.</h3>
+        <p>Press Return to open a folder or ⌘Return to reveal it in Finder.</p>
+      </div>
+      <div class="tab-panel-visual">
+        <img class="product-shot product-shot-detail"
+             src="../assets/beacon-folders-close.png"
+             alt="Folder search results in Beacon">
+      </div>
+    </div>
+
+    <div class="tab-panel" data-tab-panel="apps" id="apps">
+      <div class="tab-panel-copy">
+        <h2>Find any app.<br>Launch with Return.</h2>
+        <p>Beacon scans application folders directly, so downloaded and third-party apps appear even when Spotlight misses them.</p>
+        <h3>Keyboard-first.</h3>
+        <p>Press Option + S, type a few letters, and hit Return. No mouse or launcher grid required.</p>
+      </div>
+      <div class="tab-panel-visual">
+        <img class="product-shot product-shot-detail"
+             src="../assets/beacon-apps-wide.jpg"
+             alt="App search results in Beacon">
       </div>
     </div>
 
     <div class="tab-panel" data-tab-panel="privacy" id="privacy">
       <div class="tab-panel-copy">
         <h2>Your data.<br>Just on your Mac.</h2>
-        <p>Beacon is a local search tool. File search works out of the box with no permissions. Messages, Notes, and Safari history read databases on your machine — nothing is sent to a server.</p>
+        <p>File search works immediately with no special access. Messages, Notes, and Safari history are read locally and never sent to a server.</p>
         <h3>You control access.</h3>
-        <p>Full Disk Access is optional and only unlocks Messages, Notes, Safari history, and protected folders. Grant it once in System Settings when you're ready.</p>
+        <p>Full Disk Access is optional. Beacon explains exactly when it is needed and takes you directly to the correct System Settings page.</p>
         <a class="link-more" href="https://github.com/claytonwendelwon/Mac-search/blob/main/README.md#full-disk-access">Setup guide</a>
       </div>
       <div class="tab-panel-visual">
-        <svg width="160" height="160" viewBox="0 0 160 160" fill="none">
-          <circle cx="80" cy="80" r="70" stroke="#e8e8ed" stroke-width="2"/>
-          <path d="M80 40 C58 40 44 56 44 72 L44 96 C44 104 51 111 59 111 L101 111 C109 111 116 104 116 96 L116 72 C116 56 102 40 80 40Z" stroke="#1d1d1f" stroke-width="2.5" fill="none"/>
-          <circle cx="80" cy="76" r="5" fill="#1d1d1f"/>
-          <rect x="76" y="82" width="8" height="14" rx="4" fill="#1d1d1f"/>
-          <text x="80" y="140" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="13" fill="#86868b">On-device only</text>
-        </svg>
+        <img class="product-shot product-shot-detail"
+             src="../assets/beacon-disk-access-close.png"
+             alt="Beacon explaining optional Full Disk Access">
       </div>
     </div>
+  </section>
 
-    <div class="tab-panel" data-tab-panel="keyboard" id="keyboard">
-      <div class="tab-panel-copy">
-        <h2>Fully keyboard-driven.</h2>
-        <p>Summon Beacon with Option + S from any app. Navigate results with arrow keys, open with Return, preview with ⌘Y, reveal in Finder with ⌘Return, and copy paths with ⌘C.</p>
-        <h3>Tab through filters.</h3>
-        <p>Press Tab or Shift+Tab to cycle type filters — All, Recents, Apps, Messages, Notes, History, and more — without touching the mouse.</p>
-      </div>
-      <div class="tab-panel-visual">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px">
-          <div style="background:#fff;border-radius:12px;padding:16px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,0.06)">
-            <div style="font-size:24px;margin-bottom:8px">⌥ S</div>
-            <div style="color:#86868b">Open / close</div>
-          </div>
-          <div style="background:#fff;border-radius:12px;padding:16px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,0.06)">
-            <div style="font-size:24px;margin-bottom:8px">↑ ↓</div>
-            <div style="color:#86868b">Move selection</div>
-          </div>
-          <div style="background:#fff;border-radius:12px;padding:16px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,0.06)">
-            <div style="font-size:24px;margin-bottom:8px">↵</div>
-            <div style="color:#86868b">Open item</div>
-          </div>
-          <div style="background:#fff;border-radius:12px;padding:16px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,0.06)">
-            <div style="font-size:24px;margin-bottom:8px">⌘ Y</div>
-            <div style="color:#86868b">Quick Look</div>
-          </div>
-        </div>
-      </div>
+  <!-- Real-world views -->
+  <section class="showcase-section" aria-labelledby="showcase-title">
+    <div class="showcase-header fade-in">
+      <p class="eyebrow">Beacon in action</p>
+      <h2 class="headline-section" id="showcase-title">One search bar.<br>Your whole Mac.</h2>
     </div>
-
-    <div class="tab-panel" data-tab-panel="native">
-      <div class="tab-panel-copy">
-        <h2>Native Swift.<br>Zero dependencies.</h2>
-        <p>Beacon is built with Swift and SwiftUI — a lightweight menu-bar app with a floating search overlay. No Electron, no cloud accounts, no subscription.</p>
-        <h3>Signed and notarized.</h3>
-        <p>Every release is signed with a Developer ID and notarized by Apple. Double-click the DMG, and Beacon installs itself into Applications.</p>
-        <a class="link-more" href="https://github.com/claytonwendelwon/Mac-search">View source on GitHub</a>
-      </div>
-      <div class="tab-panel-visual">
-        <div style="background:#1d1d1f;color:#f5f5f7;border-radius:12px;padding:24px;font-family:ui-monospace,monospace;font-size:13px;line-height:1.6;max-width:360px">
-          <span style="color:#86868b">// Package.swift</span><br>
-          <span style="color:#ff7ab2">let</span> package = Package(<br>
-          &nbsp;&nbsp;name: <span style="color:#98c379">"Beacon"</span>,<br>
-          &nbsp;&nbsp;platforms: [.macOS(.v13)],<br>
-          &nbsp;&nbsp;targets: [.executableTarget(<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;name: <span style="color:#98c379">"Beacon"</span><br>
-          &nbsp;&nbsp;)]<br>
-          )
+    <div class="showcase-stack">
+      <article class="showcase-card fade-in">
+        <div class="showcase-copy">
+          <p class="eyebrow">Messages</p>
+          <h3>Find the conversation<br>you remember.</h3>
+          <p>Search by contact, phrase, or link across iMessage and SMS.</p>
         </div>
-      </div>
+        <img class="product-shot product-shot-wide"
+             src="../assets/beacon-messages-wide.jpg"
+             alt="Beacon searching messages over the macOS desktop">
+      </article>
+      <article class="showcase-card fade-in">
+        <div class="showcase-copy">
+          <p class="eyebrow">Browser history</p>
+          <h3>Get back to any page.</h3>
+          <p>Search Safari and Chromium history without reopening every browser.</p>
+        </div>
+        <img class="product-shot product-shot-wide"
+             src="../assets/beacon-history-wide.jpg"
+             alt="Beacon searching browser history over the macOS desktop">
+      </article>
+      <article class="showcase-card fade-in">
+        <div class="showcase-copy">
+          <p class="eyebrow">Folders</p>
+          <h3>Your projects.<br>Right where you left them.</h3>
+          <p>Find matching folders directly and reveal them in Finder.</p>
+        </div>
+        <img class="product-shot product-shot-wide"
+             src="../assets/beacon-folders-wide.jpg"
+             alt="Beacon finding project folders over the macOS desktop">
+      </article>
     </div>
   </section>
 
@@ -338,10 +228,15 @@
         <h3>Notes</h3>
         <p>Full-text search across every Apple Note — title and body.</p>
       </div>
-      <div class="lineup-card" id="history">
+      <div class="lineup-card">
         <div class="lineup-card-icon">🌐</div>
         <h3>History</h3>
         <p>Safari, Chrome, Brave, Edge, and Arc browsing history with favicons.</p>
+      </div>
+      <div class="lineup-card">
+        <div class="lineup-card-icon">🖼️</div>
+        <h3>Docs & media</h3>
+        <p>Focused filters for documents, PDFs, photos, videos, and audio.</p>
       </div>
       <div class="lineup-card">
         <div class="lineup-card-icon">📋</div>
@@ -378,15 +273,15 @@
       <div class="bento-item tall">
         <h3>One overlay.<br>Every source.</h3>
         <p>Messages, Notes, Clipboard, and History each have focused filters — so they never drown out file search.</p>
-        <div class="bento-visual">
-          <div class="search-mock" style="width:100%;transform:scale(0.95)">
-            <div class="search-mock-chips" style="border-top:none;padding-top:10px">
-              <span class="chip">All</span>
-              <span class="chip active">Recents</span>
-              <span class="chip">Apps</span>
-              <span class="chip">Messages</span>
-            </div>
-          </div>
+        <div class="feature-pills" aria-label="Beacon search sources">
+          <span>All</span>
+          <span>Notes</span>
+          <span>Clipboard</span>
+          <span>Docs</span>
+          <span>PDFs</span>
+          <span>Photos</span>
+          <span>Videos</span>
+          <span>Audio</span>
         </div>
       </div>
       <div class="bento-item wide">
@@ -469,7 +364,7 @@
           <ul>
             <li><a href="#why">Why Beacon</a></li>
             <li><a href="#privacy">Privacy</a></li>
-            <li><a href="#keyboard">Keyboard shortcuts</a></li>
+            <li><a href="#apps">Keyboard-first search</a></li>
           </ul>
         </div>
       </div>
