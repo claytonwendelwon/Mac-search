@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Beacon — press Option + S anywhere on your Mac to search files, apps, messages, notes, browser history, and System Settings. Native, fast, private.">
   <title>Beacon — macOS search launcher</title>
-  <link rel="stylesheet" href="../css/styles.css">
+  <link rel="stylesheet" href="../css/styles.css?v=20260710-2">
 </head>
 <body class="product-page">
 
   <nav class="subnav" aria-label="Beacon">
     <div class="subnav-inner">
-      <span class="subnav-title">Beacon</span>
+      <a class="subnav-title" href="../index.html">Beacon</a>
       <ul class="subnav-links">
         <li><a href="#overview" class="active">Overview</a></li>
         <li><a href="#features">Features</a></li>
@@ -20,6 +20,19 @@
         <li><a href="#github">GitHub</a></li>
       </ul>
       <a class="subnav-cta" href="https://github.com/claytonwendelwon/Mac-search/releases/download/v1.0.4/Beacon-1.0.4.dmg">Download</a>
+      <button class="nav-menu-button" type="button" data-menu-toggle
+              aria-expanded="false" aria-controls="product-mobile-menu" aria-label="Open menu">
+        <span></span><span></span><span></span>
+      </button>
+      <div class="mobile-nav" id="product-mobile-menu" data-mobile-menu>
+        <a href="../index.html">Home</a>
+        <a href="#overview">Overview</a>
+        <a href="#features">Features</a>
+        <a href="#lineup">Filters</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/claytonwendelwon/Mac-search">GitHub</a>
+      </div>
     </div>
   </nav>
 
@@ -47,10 +60,12 @@
       <li><button type="button" class="active" data-tab-button="all" role="tab">All</button></li>
       <li><button type="button" data-tab-button="recents" role="tab">Recents</button></li>
       <li><button type="button" data-tab-button="messages" role="tab">Messages</button></li>
+      <li><button type="button" data-tab-button="notes" role="tab">Notes</button></li>
       <li><button type="button" data-tab-button="history" role="tab">History</button></li>
       <li><button type="button" data-tab-button="folders" role="tab">Folders</button></li>
       <li><button type="button" data-tab-button="apps" role="tab">Apps</button></li>
       <li><button type="button" data-tab-button="privacy" role="tab">Privacy</button></li>
+      <li><button type="button" data-tab-button="more" role="tab">More</button></li>
     </ul>
 
     <div class="tab-panel active fade-in" data-tab-panel="all">
@@ -140,6 +155,22 @@
       </div>
     </div>
 
+    <div class="tab-panel" data-tab-panel="notes" id="notes">
+      <div class="tab-panel-copy">
+        <h2>Find the note<br>you almost remember.</h2>
+        <p>Search the title and body of every Apple Note locally, then open the matching note directly in Notes.</p>
+        <h3>Your notes stay yours.</h3>
+        <p>Beacon reads the Notes database on your Mac. Nothing is uploaded, indexed remotely, or used for training.</p>
+      </div>
+      <div class="tab-panel-visual">
+        <div class="notes-placeholder" role="img" aria-label="Beacon Notes search preview coming soon">
+          <svg aria-hidden="true"><use href="../assets/symbols.svg#icon-notes"/></svg>
+          <strong>Notes search</strong>
+          <span>Updated preview coming soon.</span>
+        </div>
+      </div>
+    </div>
+
     <div class="tab-panel" data-tab-panel="privacy" id="privacy">
       <div class="tab-panel-copy">
         <h2>Your data.<br>Just on your Mac.</h2>
@@ -152,6 +183,25 @@
         <img class="product-shot product-shot-detail"
              src="../assets/beacon-disk-access-close.png"
              alt="Beacon explaining optional Full Disk Access">
+      </div>
+    </div>
+
+    <div class="tab-panel more-panel" data-tab-panel="more">
+      <div class="more-panel-heading">
+        <p class="eyebrow">More built in</p>
+        <h2>Less hunting.<br>More finding.</h2>
+        <p>Preview files without opening them, copy paths and links, reveal results in Finder, and move through every result without leaving the keyboard.</p>
+      </div>
+      <div class="benefit-grid" aria-label="More Beacon capabilities">
+        <div><strong>Quick Look</strong><span>Preview with Space.</span></div>
+        <div><strong>Clipboard</strong><span>Recover copied text.</span></div>
+        <div><strong>System Settings</strong><span>Jump to any pane.</span></div>
+        <div><strong>Private by design</strong><span>No account or cloud index.</span></div>
+      </div>
+      <div class="coming-soon">
+        <span class="coming-soon-label">Coming soon</span>
+        <h3>Search beyond your Mac.</h3>
+        <p>Google Drive, Microsoft Word, email, Discord, and more—all from the same Beacon overlay.</p>
       </div>
     </div>
   </section>
@@ -204,47 +254,47 @@
     </div>
     <div class="lineup-grid fade-in">
       <div class="lineup-card">
-        <div class="lineup-card-icon">🔍</div>
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-all"/></svg></div>
         <h3>All</h3>
         <p>Blended, ranked results across files, apps, messages, and notes.</p>
       </div>
       <div class="lineup-card">
-        <div class="lineup-card-icon">🕐</div>
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-recents"/></svg></div>
         <h3>Recents</h3>
         <p>Filesystem-backed timeline of files you've opened, saved, or added.</p>
       </div>
       <div class="lineup-card">
-        <div class="lineup-card-icon">📱</div>
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-apps"/></svg></div>
         <h3>Apps</h3>
         <p>Direct scan of .app bundles — including third-party downloads.</p>
       </div>
       <div class="lineup-card">
-        <div class="lineup-card-icon">💬</div>
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-messages"/></svg></div>
         <h3>Messages</h3>
         <p>Full iMessage & SMS history search by word or contact.</p>
       </div>
-      <div class="lineup-card" id="notes">
-        <div class="lineup-card-icon">📝</div>
+      <div class="lineup-card">
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-notes"/></svg></div>
         <h3>Notes</h3>
         <p>Full-text search across every Apple Note — title and body.</p>
       </div>
       <div class="lineup-card">
-        <div class="lineup-card-icon">🌐</div>
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-history"/></svg></div>
         <h3>History</h3>
         <p>Safari, Chrome, Brave, Edge, and Arc browsing history with favicons.</p>
       </div>
       <div class="lineup-card">
-        <div class="lineup-card-icon">🖼️</div>
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-docs"/></svg></div>
         <h3>Docs & media</h3>
         <p>Focused filters for documents, PDFs, photos, videos, and audio.</p>
       </div>
       <div class="lineup-card">
-        <div class="lineup-card-icon">📋</div>
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-clipboard"/></svg></div>
         <h3>Clipboard</h3>
         <p>Search your clipboard history without leaving the overlay.</p>
       </div>
       <div class="lineup-card">
-        <div class="lineup-card-icon">⚙️</div>
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-settings"/></svg></div>
         <h3>Settings</h3>
         <p>Jump straight to Wi-Fi, Displays, Privacy, Battery, and more.</p>
       </div>
@@ -270,7 +320,7 @@
         <h3>Finder Recents lie.</h3>
         <p>A download you haven't opened yet? Missing from Finder Recents. Beacon sees it the moment it hits disk.</p>
       </div>
-      <div class="bento-item tall">
+      <div class="bento-item">
         <h3>One overlay.<br>Every source.</h3>
         <p>Messages, Notes, Clipboard, and History each have focused filters — so they never drown out file search.</p>
         <div class="feature-pills" aria-label="Beacon search sources">
@@ -284,7 +334,7 @@
           <span>Audio</span>
         </div>
       </div>
-      <div class="bento-item wide">
+      <div class="bento-item">
         <h3>Built for macOS 13+.</h3>
         <p>Native SwiftUI, global hotkey via Carbon API (no Accessibility permission needed), Quick Look previews, and Developer ID signed releases. Zero third-party dependencies.</p>
         <div class="cta-row" style="justify-content:flex-start;margin-top:16px">
@@ -303,9 +353,9 @@
       <a class="link-more" style="color:#2997ff" href="https://github.com/claytonwendelwon/Mac-search/releases/tag/v1.0.4">Release notes</a>
     </div>
     <ol class="download-steps">
-      <li>Download <strong style="color:#f5f5f7">Beacon-1.0.4.dmg</strong> and open it.</li>
-      <li>Double-click Beacon — it installs into Applications and opens with a hotkey tip.</li>
-      <li>Press <strong style="color:#f5f5f7">Option + S</strong> anywhere to search. Beacon lives in your menu bar.</li>
+      <li><span class="step-copy">Download <strong>Beacon-1.0.4.dmg</strong> and open it.</span></li>
+      <li><span class="step-copy">Double-click Beacon — it installs into Applications and opens with a hotkey tip.</span></li>
+      <li><span class="step-copy">Press <kbd>Option + S</kbd> anywhere to search. Beacon lives in your menu bar.</span></li>
     </ol>
   </section>
 
@@ -379,6 +429,6 @@
     </div>
   </footer>
 
-  <script src="../js/main.js"></script>
+  <script src="../js/main.js?v=20260710-2"></script>
 </body>
 </html>

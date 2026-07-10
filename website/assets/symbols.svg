@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <symbol id="icon-all" viewBox="0 0 24 24">
+    <rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.2"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.2"/>
+    <rect x="3.5" y="14" width="6.5" height="6.5" rx="1.2"/><rect x="14" y="14" width="6.5" height="6.5" rx="1.2"/>
+  </symbol>
+  <symbol id="icon-recents" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.5"/><path d="M12 7.2v5.2l-3.3 2"/>
+  </symbol>
+  <symbol id="icon-apps" viewBox="0 0 24 24">
+    <rect x="4" y="5" width="15" height="15" rx="3"/><path d="M15.5 3v4M13.5 5h4"/>
+  </symbol>
+  <symbol id="icon-messages" viewBox="0 0 24 24">
+    <path d="M20.5 11.5c0 4.3-3.8 7.7-8.5 7.7-1.3 0-2.5-.2-3.6-.7L4 20l1.3-3.5a7.2 7.2 0 0 1-1.8-5c0-4.3 3.8-7.7 8.5-7.7s8.5 3.4 8.5 7.7Z"/>
+  </symbol>
+  <symbol id="icon-notes" viewBox="0 0 24 24">
+    <rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M7.5 8h9M7.5 11.5h9M7.5 15h6"/>
+  </symbol>
+  <symbol id="icon-history" viewBox="0 0 24 24">
+    <path d="M5.3 8.1A8 8 0 1 1 4 14"/><path d="M4 5v4.5h4.5M12 7.5v5l3 1.8"/>
+  </symbol>
+  <symbol id="icon-docs" viewBox="0 0 24 24">
+    <path d="M6 3.5h8l4 4V20.5H6Z"/><path d="M14 3.5v4h4M9 12h6M9 15.5h6"/>
+  </symbol>
+  <symbol id="icon-pdfs" viewBox="0 0 24 24">
+    <path d="M6 3.5h8l4 4V20.5H6Z"/><path d="M14 3.5v4h4M9 16V11h2a1.8 1.8 0 0 1 0 3.6H9M14 11h2.5"/>
+  </symbol>
+  <symbol id="icon-audio" viewBox="0 0 24 24">
+    <path d="M10 18V6l8-2v12"/><circle cx="7.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/>
+  </symbol>
+  <symbol id="icon-folders" viewBox="0 0 24 24">
+    <path d="M3.5 7h7l2-2h8v14h-17Z"/>
+  </symbol>
+  <symbol id="icon-photos" viewBox="0 0 24 24">
+    <rect x="3.5" y="4" width="17" height="16" rx="2.5"/><circle cx="9" cy="9" r="1.7"/><path d="m5.5 17 4.5-4 3.2 2.8 2.4-2 3 3.2"/>
+  </symbol>
+  <symbol id="icon-videos" viewBox="0 0 24 24">
+    <rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M8 5v14M16 5v14M3.5 9h4.5M16 9h4.5M3.5 15h4.5M16 15h4.5"/>
+  </symbol>
+  <symbol id="icon-clipboard" viewBox="0 0 24 24">
+    <path d="M8 6H5.5v14h13V6H16"/><rect x="8" y="3.5" width="8" height="5" rx="2"/>
+  </symbol>
+  <symbol id="icon-settings" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.5 1.5M16.5 16.5 18 18M18 6l-1.5 1.5M7.5 16.5 6 18"/>
+  </symbol>
+</svg>

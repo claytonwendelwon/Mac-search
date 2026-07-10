@@ -1,6 +1,37 @@
 (function () {
   'use strict';
 
+  // Mobile navigation
+  var menuButton = document.querySelector('[data-menu-toggle]');
+  var mobileMenu = document.querySelector('[data-mobile-menu]');
+
+  function setMenu(open) {
+    if (!menuButton || !mobileMenu) return;
+    menuButton.setAttribute('aria-expanded', String(open));
+    menuButton.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    mobileMenu.classList.toggle('open', open);
+    document.body.classList.toggle('menu-open', open);
+  }
+
+  if (menuButton && mobileMenu) {
+    menuButton.addEventListener('click', function () {
+      setMenu(menuButton.getAttribute('aria-expanded') !== 'true');
+    });
+
+    mobileMenu.querySelectorAll('a').forEach(function (link) {
+      link.addEventListener('click', function () { setMenu(false); });
+    });
+
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') setMenu(false);
+    });
+
+    window.addEventListener('resize', function () {
+      var breakpoint = document.body.classList.contains('product-page') ? 734 : 1068;
+      if (window.innerWidth > breakpoint) setMenu(false);
+    });
+  }
+
   // Feature tabs
   document.querySelectorAll('[data-tabs]').forEach(function (root) {
     var buttons = root.querySelectorAll('[data-tab-button]');

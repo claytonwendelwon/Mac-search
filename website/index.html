@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Beacon — a fast, native macOS search launcher. Press Option + S anywhere to find files, apps, messages, notes, and more.">
   <title>Beacon — Apple-style macOS search</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=20260710-2">
 </head>
 <body>
 
@@ -34,6 +34,19 @@
         <a href="https://github.com/claytonwendelwon/Mac-search/search" aria-label="Search">Search</a>
         <a href="beacon/index.html#download" aria-label="Download">Download</a>
       </div>
+      <button class="nav-menu-button" type="button" data-menu-toggle
+              aria-expanded="false" aria-controls="home-mobile-menu" aria-label="Open menu">
+        <span></span><span></span><span></span>
+      </button>
+      <a class="globalnav-mobile-cta" href="beacon/index.html#download">Download</a>
+      <div class="mobile-nav" id="home-mobile-menu" data-mobile-menu>
+        <a href="beacon/index.html">Beacon</a>
+        <a href="beacon/index.html#features">Features</a>
+        <a href="beacon/index.html#lineup">Filters</a>
+        <a href="beacon/index.html#privacy">Privacy</a>
+        <a href="beacon/index.html#download">Download</a>
+        <a href="https://github.com/claytonwendelwon/Mac-search">GitHub</a>
+      </div>
     </div>
   </nav>
 
@@ -60,20 +73,20 @@
         <p class="subhead">Choose a filter or search it all at once.</p>
       </div>
       <div class="filter-rail" aria-label="Available Beacon filters">
-        <span class="filter-chip active"><span aria-hidden="true">▦</span>All</span>
-        <span class="filter-chip"><span aria-hidden="true">◷</span>Recents</span>
-        <span class="filter-chip"><span aria-hidden="true">▢</span>Apps</span>
-        <span class="filter-chip"><span aria-hidden="true">○</span>Messages</span>
-        <span class="filter-chip"><span aria-hidden="true">▤</span>Notes</span>
-        <span class="filter-chip"><span aria-hidden="true">↶</span>History</span>
-        <span class="filter-chip"><span aria-hidden="true">▧</span>Docs</span>
-        <span class="filter-chip"><span aria-hidden="true">▥</span>PDFs</span>
-        <span class="filter-chip"><span aria-hidden="true">♪</span>Audio</span>
-        <span class="filter-chip"><span aria-hidden="true">□</span>Folders</span>
-        <span class="filter-chip"><span aria-hidden="true">▣</span>Photos</span>
-        <span class="filter-chip"><span aria-hidden="true">▤</span>Videos</span>
-        <span class="filter-chip"><span aria-hidden="true">▥</span>Clipboard</span>
-        <span class="filter-chip"><span aria-hidden="true">⚙</span>Settings</span>
+        <span class="filter-chip active"><svg><use href="assets/symbols.svg#icon-all"/></svg>All</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-recents"/></svg>Recents</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-apps"/></svg>Apps</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-messages"/></svg>Messages</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-notes"/></svg>Notes</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-history"/></svg>History</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-docs"/></svg>Docs</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-pdfs"/></svg>PDFs</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-audio"/></svg>Audio</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-folders"/></svg>Folders</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-photos"/></svg>Photos</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-videos"/></svg>Videos</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-clipboard"/></svg>Clipboard</span>
+        <span class="filter-chip"><svg><use href="assets/symbols.svg#icon-settings"/></svg>Settings</span>
       </div>
       <p class="filter-rail-hint">Scroll to explore</p>
     </div>
@@ -209,6 +222,6 @@
     </div>
   </footer>
 
-  <script src="js/main.js"></script>
+  <script src="js/main.js?v=20260710-2"></script>
 </body>
 </html>
