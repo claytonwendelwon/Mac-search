@@ -212,6 +212,14 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
   exact note.
 
 ## What's new in $VERSION
+- **Connected-source search.** Beacon now includes first-pass local Mail and
+  Calendar sources, with permission-aware previews and results alongside your
+  existing files, messages, notes, history, and settings.
+- **Customizable filters.** You can edit which source chips appear in Beacon,
+  with cleaner controls and a saved layout so the launcher matches how you work.
+- **More reliable protected-source handling.** Database-backed sources now have
+  clearer access requirements and preview behavior when macOS permissions are
+  needed.
 - **A new glass interface.** Beacon now uses a clearer, more modern macOS
   material with continuous 24-point corners, subtle specular highlights,
   floating glass filter controls, and improved spacing throughout.
