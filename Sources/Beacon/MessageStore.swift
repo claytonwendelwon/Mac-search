@@ -29,12 +29,18 @@ struct MessageRecord {
         }
         return ""
     }
+
+    var conversationKey: String {
+        if !chatGUID.isEmpty { return chatGUID }
+        if !chatIdentifier.isEmpty { return chatIdentifier }
+        return conversationHandle
+    }
 }
 
 /// Reads and searches the macOS Messages database (`~/Library/Messages/chat.db`).
 ///
-/// The DB is opened read-only and immutable so we never lock it while Messages
-/// is running. Reading it requires Full Disk Access; if that's missing, the
+/// The DB is opened read-only with WAL awareness so recent, uncheckpointed
+/// messages remain visible. Reading it requires Full Disk Access; if that's missing, the
 /// open fails and we surface `.needsFullDiskAccess` so the UI can guide the user.
 ///
 /// Messages are loaded once into memory (most-recent first, capped) and then
@@ -49,6 +55,8 @@ final class MessageStore {
 
     private(set) var state: State = .idle
     private var cache: [MessageRecord] = []
+    private var lastSearchTokens: [String] = []
+    private var lastSearchMatches: [MessageRecord] = []
 
     private let dbPath = NSHomeDirectory() + "/Library/Messages/chat.db"
     // Effectively "everything" - a safety ceiling so a pathological history
@@ -88,6 +96,9 @@ final class MessageStore {
             Log.write("MessageStore: search skipped (state=\(state), tokens=\(tokens))")
             return []
         }
+        if tokens == lastSearchTokens {
+            return Array(lastSearchMatches.prefix(limit))
+        }
         var out: [(record: MessageRecord, quality: SearchText.MatchQuality)] = []
         for (index, rec) in cache.enumerated() {   // already sorted newest-first
             if index & 0x3FF == 0, isCancelled?() == true {
@@ -109,15 +120,31 @@ final class MessageStore {
                 out.append((rec, quality))
             }
         }
-        let results = out
+        let matches = out
             .sorted {
                 if $0.quality != $1.quality { return $0.quality < $1.quality }
                 return $0.record.date > $1.record.date
             }
-            .prefix(limit)
             .map(\.record)
+        lastSearchTokens = tokens
+        lastSearchMatches = matches
+        let results = Array(matches.prefix(limit))
         Log.write("MessageStore: search tokens=\(tokens) cache=\(cache.count) matched=\(out.count) returned=\(results.count)")
         return results
+    }
+
+    /// A chronological window around one result in the same conversation.
+    func context(around rowid: Int64, radius: Int = 8) -> [MessageRecord] {
+        guard let target = cache.first(where: { $0.rowid == rowid }) else { return [] }
+        let key = target.conversationKey
+        guard !key.isEmpty else { return [target] }
+        let thread = cache
+            .filter { $0.conversationKey == key }
+            .sorted { $0.date < $1.date }
+        guard let index = thread.firstIndex(where: { $0.rowid == rowid }) else { return [target] }
+        let lower = max(0, index - radius)
+        let upper = min(thread.count, index + radius + 1)
+        return Array(thread[lower..<upper])
     }
 
     /// Folded contact names, cached per handle. Only consulted once the
@@ -139,10 +166,9 @@ final class MessageStore {
         var db: OpaquePointer?
         defer { if db != nil { sqlite3_close(db) } }
 
-        // Percent-encode the path for the file: URI; immutable=1 avoids needing
-        // the -wal/-shm sidecars and any write lock.
+        // Read-only mode prevents writes while still merging Messages' live WAL.
         let encoded = dbPath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? dbPath
-        let uri = "file:\(encoded)?immutable=1"
+        let uri = "file:\(encoded)?mode=ro"
 
         let openFlags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
         let openRC = sqlite3_open_v2(uri, &db, openFlags, nil)
@@ -225,6 +251,8 @@ final class MessageStore {
         }
 
         cache = records
+        lastSearchTokens = []
+        lastSearchMatches = []
         state = .ready
         Log.write("MessageStore: loaded scanned=\(scanned) textCol=\(fromTextCol) blob=\(fromBlob) dropped=\(dropped) cache=\(records.count)")
     }

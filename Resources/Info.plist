@@ -24,6 +24,10 @@
 	<string>16</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Beacon uses Contacts to show sender names (instead of phone numbers) in your message search results.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Beacon searches event titles, dates, locations, and notes locally on your Mac.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Beacon needs calendar access to search and preview your events locally on your Mac.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Beacon uses Notes automation to open the exact note you select from search results.</string>
 	<key>LSMinimumSystemVersion</key>

@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Beacon — press Option + S anywhere on your Mac to search files, apps, messages, notes, browser history, and System Settings. Native, fast, private.">
+  <meta name="description" content="Beacon — search files, messages, mail, calendar, Office documents, cloud folders, browser history, and more from one private macOS overlay.">
   <title>Beacon — macOS search launcher</title>
-  <link rel="stylesheet" href="../css/styles.css?v=20260710-2">
+  <link rel="stylesheet" href="../css/styles.css?v=20260711-1">
 </head>
 <body class="product-page">
 
@@ -64,6 +64,8 @@
       <li><button type="button" data-tab-button="history" role="tab">History</button></li>
       <li><button type="button" data-tab-button="folders" role="tab">Folders</button></li>
       <li><button type="button" data-tab-button="apps" role="tab">Apps</button></li>
+      <li><button type="button" data-tab-button="customize" role="tab">Customize</button></li>
+      <li><button type="button" data-tab-button="sources" role="tab">Sources</button></li>
       <li><button type="button" data-tab-button="privacy" role="tab">Privacy</button></li>
       <li><button type="button" data-tab-button="more" role="tab">More</button></li>
     </ul>
@@ -71,7 +73,7 @@
     <div class="tab-panel active fade-in" data-tab-panel="all">
       <div class="tab-panel-copy">
         <h2>Everything, intelligently blended.</h2>
-        <p>All brings files, apps, messages, and notes into one ranked view, so the right result can surface without choosing a source first.</p>
+        <p>All brings files, apps, messages, notes, mail, calendar events, and connected folders into one ranked view, so the right result can surface without choosing a source first.</p>
         <h3>Focused when you need it.</h3>
         <p>Switch to any dedicated filter with one click or cycle through them from the keyboard.</p>
         <a class="link-more" href="#lineup">Explore every filter</a>
@@ -103,7 +105,7 @@
         <h2>Search your text messages.</h2>
         <p>Find any iMessage or SMS by word, phrase, or contact name. Type "Mom" and get Mom's messages — not every text containing the word "mom."</p>
         <h3>Snippets with context.</h3>
-        <p>Results show the contact's name, a snippet centered on the match with bold highlighting, and when it was sent. Press Return to open the conversation in Messages.</p>
+        <p>Results show the contact's name, a highlighted snippet, and when it was sent. Double-click to see the surrounding thread inside Beacon, then open the conversation in Messages.</p>
         <a class="link-more" href="#privacy">Privacy & permissions</a>
       </div>
       <div class="tab-panel-visual">
@@ -169,10 +171,40 @@
       </div>
     </div>
 
+    <div class="tab-panel" data-tab-panel="customize" id="customize">
+      <div class="tab-panel-copy">
+        <p class="eyebrow">Make it yours</p>
+        <h2>Keep the filters<br>you actually use.</h2>
+        <p>Enter Edit mode to remove filters, drag them into a new order, or restore something later. Your layout stays exactly where you left it.</p>
+        <h3>All changes with you.</h3>
+        <p>A source only contributes to the blended All view when it is part of your filter layout.</p>
+      </div>
+      <div class="tab-panel-visual">
+        <img class="product-shot product-shot-detail"
+             src="../assets/beacon-edit-experience.png"
+             alt="Beacon Edit mode for removing and rearranging filters">
+      </div>
+    </div>
+
+    <div class="tab-panel" data-tab-panel="sources" id="sources">
+      <div class="tab-panel-copy">
+        <p class="eyebrow">Connected sources</p>
+        <h2>Add more of<br>your digital life.</h2>
+        <p>Add Word, Excel, PowerPoint, Mail, Gmail, Calendar, iCloud Drive, Google Drive, OneDrive, and Dropbox from one clean menu.</p>
+        <h3>Setup without guesswork.</h3>
+        <p>Cloud providers use their signed-in desktop sync app, while Gmail uses the account connected in Apple Mail. Beacon detects local setup and clearly explains what is missing.</p>
+      </div>
+      <div class="tab-panel-visual">
+        <img class="product-shot product-shot-detail"
+             src="../assets/beacon-edit-add.png"
+             alt="Beacon Add Filters menu with connected apps and cloud sources">
+      </div>
+    </div>
+
     <div class="tab-panel" data-tab-panel="privacy" id="privacy">
       <div class="tab-panel-copy">
         <h2>Your data.<br>Just on your Mac.</h2>
-        <p>File search works immediately with no special access. Messages, Notes, and Safari history are read locally and never sent to a server.</p>
+        <p>File search works immediately with no special access. Messages, Notes, Mail, Calendar, and browser history are read locally and never sent to a server.</p>
         <h3>You control access.</h3>
         <p>Full Disk Access is optional. Beacon explains exactly when it is needed and takes you directly to the correct System Settings page.</p>
         <a class="link-more" href="https://github.com/claytonwendelwon/Mac-search/blob/main/README.md#full-disk-access">Setup guide</a>
@@ -197,9 +229,9 @@
         <div><strong>Private by design</strong><span>No account or cloud index.</span></div>
       </div>
       <div class="coming-soon">
-        <span class="coming-soon-label">Coming soon</span>
-        <h3>Search beyond your Mac.</h3>
-        <p>Google Drive, Microsoft Word, email, Discord, and more—all from the same Beacon overlay.</p>
+        <span class="coming-soon-label">Available now</span>
+        <h3>Your apps. One search.</h3>
+        <p>Search Office documents, cloud folders, Mail, Gmail, and Calendar locally. Authenticated services such as Discord and Notion can come in a future update.</p>
       </div>
     </div>
   </section>
@@ -211,6 +243,26 @@
       <h2 class="headline-section" id="showcase-title">One search bar.<br>Your whole Mac.</h2>
     </div>
     <div class="showcase-stack">
+      <article class="showcase-card fade-in">
+        <div class="showcase-copy">
+          <p class="eyebrow">Customizable filters</p>
+          <h3>Put search in<br>your preferred order.</h3>
+          <p>Drag filters into place, subtract the ones you don’t need, and keep your All results focused.</p>
+        </div>
+        <img class="product-shot product-shot-wide"
+             src="../assets/beacon-edit-experience.png"
+             alt="Beacon customizable filter layout">
+      </article>
+      <article class="showcase-card fade-in">
+        <div class="showcase-copy">
+          <p class="eyebrow">Add sources</p>
+          <h3>Bring in the apps<br>you already use.</h3>
+          <p>Beacon tells you when a desktop sync app, Finder account, Apple Mail account, or local permission still needs setup.</p>
+        </div>
+        <img class="product-shot product-shot-wide"
+             src="../assets/beacon-edit-add.png"
+             alt="Adding connected sources to Beacon">
+      </article>
       <article class="showcase-card fade-in">
         <div class="showcase-copy">
           <p class="eyebrow">Messages</p>
@@ -254,7 +306,7 @@
       <div class="lineup-card">
         <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-all"/></svg></div>
         <h3>All</h3>
-        <p>Blended, ranked results across files, apps, messages, and notes.</p>
+        <p>Blended, ranked results across every source in your chosen layout.</p>
       </div>
       <div class="lineup-card">
         <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-recents"/></svg></div>
@@ -296,6 +348,16 @@
         <h3>Settings</h3>
         <p>Jump straight to Wi-Fi, Displays, Privacy, Battery, and more.</p>
       </div>
+      <div class="lineup-card">
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-apps"/></svg></div>
+        <h3>Connected sources</h3>
+        <p>Office, Mail, Gmail, Calendar, iCloud, Google Drive, OneDrive, and Dropbox.</p>
+      </div>
+      <div class="lineup-card">
+        <div class="lineup-card-icon"><svg><use href="../assets/symbols.svg#icon-settings"/></svg></div>
+        <h3>Your layout</h3>
+        <p>Add, remove, and reorder filters without changing how you search.</p>
+      </div>
     </div>
   </section>
 
@@ -320,16 +382,14 @@
       </div>
       <div class="bento-item">
         <h3>One overlay.<br>Every source.</h3>
-        <p>Messages, Notes, Clipboard, and History each have focused filters — so they never drown out file search.</p>
+        <p>Messages, Notes, Mail, Calendar, cloud folders, and Office files each have focused filters—so they never drown out file search.</p>
         <div class="feature-pills" aria-label="Beacon search sources">
           <span>All</span>
           <span>Notes</span>
-          <span>Clipboard</span>
-          <span>Docs</span>
-          <span>PDFs</span>
-          <span>Photos</span>
-          <span>Videos</span>
-          <span>Audio</span>
+          <span>Mail</span>
+          <span>Calendar</span>
+          <span>Cloud</span>
+          <span>Office</span>
         </div>
       </div>
       <div class="bento-item">
@@ -427,6 +487,6 @@
     </div>
   </footer>
 
-  <script src="../js/main.js?v=20260710-2"></script>
+  <script src="../js/main.js?v=20260711-1"></script>
 </body>
 </html>

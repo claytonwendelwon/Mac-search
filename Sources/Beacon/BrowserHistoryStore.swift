@@ -47,6 +47,8 @@ final class BrowserHistoryStore {
     /// in-list footer rather than a full-screen block.
     private(set) var safariDenied = false
     private var cache: [HistoryEntry] = []
+    private var lastSearchTokens: [String] = []
+    private var lastSearchMatches: [HistoryEntry] = []
 
     private let home = NSHomeDirectory()
     private let perSourceCap = 20_000
@@ -72,6 +74,9 @@ final class BrowserHistoryStore {
                 isCancelled: (() -> Bool)? = nil) -> [HistoryEntry] {
         guard state == .ready else { return [] }
         guard !tokens.isEmpty else { return Array(cache.prefix(limit)) }
+        if tokens == lastSearchTokens {
+            return Array(lastSearchMatches.prefix(limit))
+        }
 
         var scored: [(entry: HistoryEntry, quality: SearchText.MatchQuality, frecency: Double)] = []
         for (index, entry) in cache.enumerated() {
@@ -87,7 +92,9 @@ final class BrowserHistoryStore {
             if a.frecency != b.frecency { return a.frecency > b.frecency }
             return a.entry.lastVisit > b.entry.lastVisit
         }
-        return scored.prefix(limit).map(\.entry)
+        lastSearchTokens = tokens
+        lastSearchMatches = scored.map(\.entry)
+        return Array(lastSearchMatches.prefix(limit))
     }
 
     /// Firefox-style frecency: visit count damped by how long ago the page was
@@ -148,6 +155,8 @@ final class BrowserHistoryStore {
         }
         cache = byURL.values.sorted { $0.lastVisit > $1.lastVisit }
         if cache.count > totalCap { cache.removeLast(cache.count - totalCap) }
+        lastSearchTokens = []
+        lastSearchMatches = []
         state = .ready
         Log.write("BrowserHistoryStore: loaded \(cache.count) entries from \(all.count) rows")
     }

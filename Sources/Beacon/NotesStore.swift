@@ -27,6 +27,8 @@ final class NotesStore {
 
     private(set) var state: State = .idle
     private var cache: [NoteRecord] = []
+    private var lastSearchTokens: [String] = []
+    private var lastSearchMatches: [NoteRecord] = []
 
     private let dbPath = NSHomeDirectory()
         + "/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
@@ -54,6 +56,9 @@ final class NotesStore {
             Log.write("NotesStore: search skipped (state=\(state))")
             return []
         }
+        if tokens == lastSearchTokens {
+            return Array(lastSearchMatches.prefix(limit))
+        }
         var out: [(record: NoteRecord, quality: SearchText.MatchQuality)] = []
         for (index, rec) in cache.enumerated() {  // newest-first
             if index & 0xFF == 0, isCancelled?() == true { return out.map(\.record) }
@@ -61,13 +66,15 @@ final class NotesStore {
                 out.append((rec, quality))
             }
         }
-        let results = out
+        let matches = out
             .sorted {
                 if $0.quality != $1.quality { return $0.quality < $1.quality }
                 return $0.record.modified > $1.record.modified
             }
-            .prefix(limit)
             .map(\.record)
+        lastSearchTokens = tokens
+        lastSearchMatches = matches
+        let results = Array(matches.prefix(limit))
         Log.write("NotesStore: search tokens=\(tokens) cache=\(cache.count) matched=\(out.count) returned=\(results.count)")
         return results
     }
@@ -149,6 +156,8 @@ final class NotesStore {
         }
 
         cache = records
+        lastSearchTokens = []
+        lastSearchMatches = []
         state = .ready
         Log.write("NotesStore: loaded notes=\(records.count) bodiesDecoded=\(decoded)")
     }

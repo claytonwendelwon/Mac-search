@@ -10,11 +10,12 @@ final class FilterLayoutStore: ObservableObject {
 
     private let defaultsKey = "filterLayout.v1"
     private var orderBeforeDrag: [FileType]?
+    private static let defaultVisibleFilters = FileType.allCases.filter { !$0.isOptionalSource }
 
     private init() {
         let saved = UserDefaults.standard.stringArray(forKey: defaultsKey) ?? []
         let decoded = saved.compactMap(FileType.init(rawValue:))
-        visibleFilters = Self.normalized(decoded.isEmpty ? FileType.allCases : decoded)
+        visibleFilters = Self.normalized(decoded.isEmpty ? Self.defaultVisibleFilters : decoded)
     }
 
     var hiddenFilters: [FileType] {
@@ -83,7 +84,7 @@ final class FilterLayoutStore: ObservableObject {
 
     func reset() {
         cancelMove()
-        visibleFilters = FileType.allCases
+        visibleFilters = Self.defaultVisibleFilters
         save()
     }
 

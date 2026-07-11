@@ -14,9 +14,26 @@ enum ResultSource {
     case file
     case message
     case note
+    case mail
+    case calendar
     case clipboard
     case history
     case settings
+}
+
+struct MessageThreadItem: Identifiable {
+    let id: Int64
+    let body: String
+    let sender: String
+    let date: Date
+    let isFromMe: Bool
+    let isMatch: Bool
+}
+
+struct MessageThreadPreview {
+    let title: String
+    let result: SearchResult
+    let items: [MessageThreadItem]
 }
 
 /// One row in the results list, from either the Spotlight index or Messages.
@@ -51,6 +68,8 @@ struct SearchResult: Identifiable, Hashable {
 
     // Note-only field: AppleScript id used to navigate to the exact note.
     let noteID: String?
+    // Mail-only RFC Message-ID used by Mail's exact-message URL scheme.
+    let mailMessageID: String?
 
     var url: URL { URL(fileURLWithPath: path) }
 
@@ -62,6 +81,10 @@ struct SearchResult: Identifiable, Hashable {
             return NSWorkspace.shared.icon(forFile: "/System/Applications/Messages.app")
         case .note:
             return NSWorkspace.shared.icon(forFile: "/System/Applications/Notes.app")
+        case .mail:
+            return NSWorkspace.shared.icon(forFile: "/System/Applications/Mail.app")
+        case .calendar:
+            return NSWorkspace.shared.icon(forFile: "/System/Applications/Calendar.app")
         case .clipboard:
             let symbol = NSImage(systemSymbolName: "doc.on.clipboard",
                                  accessibilityDescription: "Clipboard")
@@ -97,7 +120,7 @@ struct SearchResult: Identifiable, Hashable {
         self.matchKind = matchKind
         self.messageBody = nil; self.messageHandle = nil; self.messageFromMe = false
         self.messageChatGUID = nil; self.messageRowID = nil
-        self.noteID = nil
+        self.noteID = nil; self.mailMessageID = nil
     }
 
     /// Filesystem-backed Recents result.
@@ -121,6 +144,7 @@ struct SearchResult: Identifiable, Hashable {
         self.messageChatGUID = nil
         self.messageRowID = nil
         self.noteID = nil
+        self.mailMessageID = nil
     }
 
     /// Installed app result.
@@ -144,6 +168,7 @@ struct SearchResult: Identifiable, Hashable {
         self.messageChatGUID = nil
         self.messageRowID = nil
         self.noteID = nil
+        self.mailMessageID = nil
     }
 
     /// Message result. `contactName` (when resolved from Contacts) is shown
@@ -178,6 +203,7 @@ struct SearchResult: Identifiable, Hashable {
         self.messageChatGUID = m.chatGUID.isEmpty ? nil : m.chatGUID
         self.messageRowID = m.rowid
         self.noteID = nil
+        self.mailMessageID = nil
     }
 
     /// Note result. The note title is the title; the body/snippet is the detail.
@@ -201,6 +227,57 @@ struct SearchResult: Identifiable, Hashable {
         self.messageChatGUID = nil
         self.messageRowID = nil
         self.noteID = n.appleScriptID
+        self.mailMessageID = nil
+    }
+
+    /// Apple Mail result. Subject is primary; sender and extracted summary are
+    /// retained for ranking, preview, copying, and exact-message opening.
+    init(mail m: MailRecord) {
+        self.id = "mail:\(m.rowid)"
+        self.source = .mail
+        self.name = m.subject
+        self.path = ""
+        self.kind = m.senderDisplay
+        self.size = nil
+        self.modified = m.received
+        self.lastUsed = m.received
+        self.dateAdded = nil
+        self.isFolder = false
+        self.isApp = false
+        self.contentTypes = []
+        self.matchKind = .content
+        self.messageBody = m.snippet
+        self.messageHandle = m.senderAddress
+        self.messageFromMe = false
+        self.messageChatGUID = nil
+        self.messageRowID = nil
+        self.noteID = nil
+        self.mailMessageID = m.messageID
+    }
+
+    init(calendar event: CalendarRecord) {
+        self.id = "calendar:\(event.identifier)"
+        self.source = .calendar
+        self.name = event.title
+        self.path = event.identifier
+        self.kind = event.calendarName
+        self.size = nil
+        self.modified = event.start
+        self.lastUsed = event.start
+        self.dateAdded = event.end
+        self.isFolder = false
+        self.isApp = false
+        self.contentTypes = []
+        self.matchKind = .content
+        self.messageBody = [event.location, event.notes]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        self.messageHandle = nil
+        self.messageFromMe = false
+        self.messageChatGUID = nil
+        self.messageRowID = nil
+        self.noteID = nil
+        self.mailMessageID = nil
     }
 
     /// Clipboard-history result. `name` is a one-line preview; `messageBody`
@@ -226,6 +303,7 @@ struct SearchResult: Identifiable, Hashable {
         self.messageChatGUID = nil
         self.messageRowID = nil
         self.noteID = nil
+        self.mailMessageID = nil
     }
 
     /// Browser-history result. `name` is the page title (or URL), `path` holds
@@ -251,6 +329,7 @@ struct SearchResult: Identifiable, Hashable {
         self.messageChatGUID = nil
         self.messageRowID = nil
         self.noteID = nil
+        self.mailMessageID = nil
     }
 
     /// System Settings result.
@@ -274,6 +353,7 @@ struct SearchResult: Identifiable, Hashable {
         self.messageChatGUID = nil
         self.messageRowID = nil
         self.noteID = nil
+        self.mailMessageID = nil
     }
 }
 
@@ -295,18 +375,28 @@ final class SearchEngine: ObservableObject {
             fileResults = []
             messageResults = []
             noteResults = []
+            mailResults = []
+            calendarResults = []
+            calendarResults = []
             results = []
             needsFullDiskAccess = false
+            mailNeedsSetup = false
+            gmailNeedsSetup = false
             historySafariDenied = false
             scheduleSearch()
         }
     }
     @Published private(set) var results: [SearchResult] = []
     @Published private(set) var isSearching: Bool = false
+    @Published private(set) var canLoadMore: Bool = false
+    @Published private(set) var isLoadingMore: Bool = false
 
     /// True when the Messages filter is active but we can't read the Messages
     /// database because Full Disk Access hasn't been granted.
     @Published private(set) var needsFullDiskAccess: Bool = false
+    @Published private(set) var mailNeedsSetup: Bool = false
+    @Published private(set) var gmailNeedsSetup: Bool = false
+    @Published private(set) var calendarPermission: CalendarPermissionState = .notDetermined
 
     /// True in the History filter when Safari's history is locked behind Full
     /// Disk Access (other browsers may still have loaded). Drives a slim footer
@@ -322,12 +412,15 @@ final class SearchEngine: ObservableObject {
 
     private let messageStore = MessageStore()
     private let notesStore = NotesStore()
+    private let mailStore = MailStore()
+    private let calendarStore = CalendarStore()
     private let historyStore = BrowserHistoryStore()
     private let recentsStore = RecentsStore()
     private let appStore = AppStore()
     private let settingsStore = SettingsStore()
     private let contacts = ContactResolver()
     private let messageQueue = DispatchQueue(label: "com.beacon.messages", qos: .userInitiated)
+    private let calendarQueue = DispatchQueue(label: "com.beacon.calendar", qos: .userInitiated)
     private let recentsQueue = DispatchQueue(label: "com.beacon.recents", qos: .userInitiated)
     /// Monotonic generation bumped on every scheduled search (query OR filter
     /// change). Async work captures the value and only applies its results if
@@ -355,7 +448,8 @@ final class SearchEngine: ObservableObject {
     // Read generous caps so rarely-used items aren't dropped before ranking.
     private let nameReadCap = 500
     private let contentReadCap = 250
-    private let displayCap = 120
+    private let pageSize = 80
+    private var pageLimit = 80
     /// Recents reads deeper than regular searches: it is scoped to the user's
     /// own folders, but a burst of new files (a build, an export) shouldn't
     /// push a fresh download out of the readable window.
@@ -366,11 +460,26 @@ final class SearchEngine: ObservableObject {
     private var scannedAppResults: [SearchResult] = []
     private var messageResults: [SearchResult] = []
     private var noteResults: [SearchResult] = []
+    private var mailResults: [SearchResult] = []
+    private var calendarResults: [SearchResult] = []
 
     // Caps for the blended "All" view so each source stays reachable.
-    private let allFileCap = 60
+    private let allFileCap = 44
     private let allMessageCap = 6
     private let allNoteCap = 6
+    private let allMailCap = 6
+    private let allCalendarCap = 6
+
+    private var pagedAllFileCap: Int { max(allFileCap, pageLimit * 55 / 100) }
+    private var pagedAllMessageCap: Int { max(allMessageCap, pageLimit * 11 / 100) }
+    private var pagedAllNoteCap: Int { max(allNoteCap, pageLimit * 11 / 100) }
+    private var pagedAllMailCap: Int {
+        max(allMailCap, pageLimit * 11 / 100)
+    }
+    private var pagedAllCalendarCap: Int {
+        max(allCalendarCap, pageLimit - pagedAllFileCap - pagedAllMessageCap
+            - pagedAllNoteCap - pagedAllMailCap)
+    }
 
     private var pendingSearch: DispatchWorkItem?
     private var currentTokens: [String] = []
@@ -398,6 +507,7 @@ final class SearchEngine: ObservableObject {
     ]
 
     init() {
+        calendarPermission = calendarStore.permissionState
         for query in [nameQuery, contentQuery] {
             query.searchScopes = [NSMetadataQueryLocalComputerScope]
             query.sortDescriptors = Self.defaultSortDescriptors
@@ -421,8 +531,18 @@ final class SearchEngine: ObservableObject {
 
     // MARK: - Search lifecycle
 
+    private func publishPage(_ rows: [SearchResult]) {
+        canLoadMore = rows.count > pageLimit
+        results = Array(rows.prefix(pageLimit))
+        isSearching = false
+        isLoadingMore = false
+    }
+
     private func scheduleSearch() {
         pendingSearch?.cancel()
+        pageLimit = pageSize
+        canLoadMore = false
+        isLoadingMore = false
         // Bump the generation up front so any in-flight async search is
         // invalidated immediately (the moment the query or filter changes).
         // Mirroring into `liveToken` lets background scans abort mid-loop.
@@ -440,11 +560,13 @@ final class SearchEngine: ObservableObject {
             scannedAppResults = []
             messageResults = []
             noteResults = []
+            mailResults = []
             // Clipboard, History & Recents show recent items when the query
             // is empty - they're browsable lists, not just search targets.
             if selectedType.isClipboard {
-                results = ClipboardStore.shared.recent().map { SearchResult(clip: $0) }
-                isSearching = false
+                let rows = ClipboardStore.shared.recent(limit: pageLimit + 1)
+                    .map { SearchResult(clip: $0) }
+                publishPage(rows)
             } else if selectedType.isHistory {
                 results = []
                 isSearching = true
@@ -459,6 +581,10 @@ final class SearchEngine: ObservableObject {
                 searchApps(tokens: [], token: token)
             } else if selectedType.isSettings {
                 results = settingsStore.search(tokens: []).map { SearchResult(setting: $0) }
+                isSearching = false
+            } else if selectedType.isCalendar {
+                calendarPermission = calendarStore.permissionState
+                results = []
                 isSearching = false
             } else {
                 results = []
@@ -479,6 +605,50 @@ final class SearchEngine: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
     }
 
+    func loadMore() {
+        guard canLoadMore, !isLoadingMore else { return }
+        pageLimit += pageSize
+        isLoadingMore = true
+        canLoadMore = false
+        searchToken &+= 1
+        liveToken.set(searchToken)
+        let token = searchToken
+        let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !trimmed.isEmpty, selectedType.usesFileIndex {
+            queryUpdated(Notification(name: .NSMetadataQueryDidUpdate))
+            if selectedType == .all,
+               allIncludedTypes.contains(.messages)
+                || allIncludedTypes.contains(.notes)
+                || allIncludedTypes.contains(.mail) {
+                gatherDatabasesForAll(tokens: currentTokens, token: token)
+            }
+            if selectedType == .all, allIncludedTypes.contains(.calendar) {
+                gatherCalendarForAll(tokens: currentTokens, token: token)
+            }
+            return
+        }
+
+        if trimmed.isEmpty {
+            if selectedType.isClipboard {
+                publishPage(
+                    ClipboardStore.shared.recent(limit: pageLimit + 1)
+                        .map { SearchResult(clip: $0) }
+                )
+            } else if selectedType.isHistory {
+                searchHistory(tokens: [], token: token)
+            } else if selectedType.isRecents {
+                searchRecents(tokens: [], token: token)
+            } else if selectedType.isApps {
+                searchApps(tokens: [], token: token)
+            } else {
+                isLoadingMore = false
+            }
+            return
+        }
+        runSearch(term: trimmed, token: token)
+    }
+
     private func runSearch(term: String, token: Int) {
         guard token == searchToken else { return } // superseded before we ran
         isSearching = true
@@ -490,6 +660,18 @@ final class SearchEngine: ObservableObject {
         }
         if selectedType.isNotes {
             searchNotes(tokens: currentTokens, token: token)
+            return
+        }
+        if selectedType.isMail {
+            searchMail(tokens: currentTokens, token: token)
+            return
+        }
+        if selectedType.isGmail {
+            searchGmail(tokens: currentTokens, token: token)
+            return
+        }
+        if selectedType.isCalendar {
+            searchCalendar(tokens: currentTokens, token: token)
             return
         }
         if selectedType.isClipboard {
@@ -522,11 +704,15 @@ final class SearchEngine: ObservableObject {
         needsFullDiskAccess = false
 
         let trees = selectedType.contentTypeTrees
+        let extensions = selectedType.filenameExtensions
+        let pathPrefixes = selectedType.pathPrefixes
 
         nameQuery.stop()
         nameQuery.searchScopes = [NSMetadataQueryLocalComputerScope]
         nameQuery.sortDescriptors = Self.defaultSortDescriptors
-        nameQuery.predicate = namePredicate(tokens: currentTokens, trees: trees)
+        nameQuery.predicate = namePredicate(tokens: currentTokens, trees: trees,
+                                            extensions: extensions,
+                                            pathPrefixes: pathPrefixes)
         nameQuery.start()
 
         contentQuery.stop()
@@ -534,7 +720,9 @@ final class SearchEngine: ObservableObject {
         if contentQueryActive {
             contentQuery.searchScopes = [NSMetadataQueryLocalComputerScope]
             contentQuery.sortDescriptors = Self.defaultSortDescriptors
-            contentQuery.predicate = contentPredicate(tokens: currentTokens, trees: trees)
+            contentQuery.predicate = contentPredicate(tokens: currentTokens, trees: trees,
+                                                       extensions: extensions,
+                                                       pathPrefixes: pathPrefixes)
             contentQuery.start()
         }
 
@@ -543,12 +731,19 @@ final class SearchEngine: ObservableObject {
         scannedAppResults = []
         messageResults = []
         noteResults = []
+        mailResults = []
+        calendarResults = []
         if selectedType == .all {
             if allIncludedTypes.contains(.apps) {
                 gatherAppsForAll(tokens: currentTokens, token: token)
             }
-            if allIncludedTypes.contains(.messages) || allIncludedTypes.contains(.notes) {
+            if allIncludedTypes.contains(.messages)
+                || allIncludedTypes.contains(.notes)
+                || allIncludedTypes.contains(.mail) {
                 gatherDatabasesForAll(tokens: currentTokens, token: token)
+            }
+            if allIncludedTypes.contains(.calendar) {
+                gatherCalendarForAll(tokens: currentTokens, token: token)
             }
         }
     }
@@ -570,12 +765,35 @@ final class SearchEngine: ObservableObject {
         }
     }
 
-    /// Background-load and search Messages + Notes for the blended All view.
+    private func gatherCalendarForAll(tokens: [String], token: Int) {
+        let limit = pagedAllCalendarCap + 1
+        calendarQueue.async { [weak self] in
+            guard let self else { return }
+            let permission = self.calendarStore.permissionState
+            let mapped = permission == .granted
+                ? self.calendarStore.search(tokens: tokens, limit: limit,
+                                            isCancelled: self.cancellation(for: token))
+                    .map { SearchResult(calendar: $0) }
+                : []
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType == .all else { return }
+                self.calendarPermission = permission
+                self.calendarResults = mapped
+                self.publish()
+            }
+        }
+    }
+
+    /// Background-load and search Messages, Notes, and Mail for blended All.
     /// Skips any source that lacks Full Disk Access (no prompt in All mode -
     /// the dedicated chips own that flow).
     private func gatherDatabasesForAll(tokens: [String], token: Int) {
         let includeMessages = allIncludedTypes.contains(.messages)
         let includeNotes = allIncludedTypes.contains(.notes)
+        let includeMail = allIncludedTypes.contains(.mail)
+        let messageLimit = pagedAllMessageCap + 1
+        let noteLimit = pagedAllNoteCap + 1
+        let mailLimit = pagedAllMailCap + 1
         messageQueue.async { [weak self] in
             guard let self else { return }
             let cancelled = self.cancellation(for: token)
@@ -586,7 +804,8 @@ final class SearchEngine: ObservableObject {
                 let resolver: ((String) -> String?)? =
                     self.contacts.isReady ? { self.contacts.name(for: $0) } : nil
                 if !self.messageStore.needsFullDiskAccess {
-                    msgs = self.messageStore.search(tokens: tokens, limit: self.allMessageCap,
+                    msgs = self.messageStore.search(tokens: tokens,
+                                                    limit: messageLimit,
                                                     nameResolver: resolver, isCancelled: cancelled)
                         .map {
                             SearchResult(message: $0,
@@ -599,8 +818,20 @@ final class SearchEngine: ObservableObject {
             if includeNotes {
                 self.notesStore.ensureLoaded()
                 if !self.notesStore.needsFullDiskAccess {
-                    notes = self.notesStore.search(tokens: tokens, limit: self.allNoteCap,
+                    notes = self.notesStore.search(tokens: tokens,
+                                                   limit: noteLimit,
                                                    isCancelled: cancelled).map { SearchResult(note: $0) }
+                }
+            }
+
+            var mail: [SearchResult] = []
+            if includeMail {
+                self.mailStore.ensureLoaded()
+                if !self.mailStore.needsFullDiskAccess {
+                    mail = self.mailStore.search(tokens: tokens,
+                                                 limit: mailLimit,
+                                                 isCancelled: cancelled)
+                        .map { SearchResult(mail: $0) }
                 }
             }
 
@@ -608,6 +839,7 @@ final class SearchEngine: ObservableObject {
                 guard token == self.searchToken, self.selectedType == .all else { return }
                 self.messageResults = msgs
                 self.noteResults = notes
+                self.mailResults = mail
                 self.publish()
             }
         }
@@ -618,18 +850,35 @@ final class SearchEngine: ObservableObject {
     /// file-backed modes show just their files.
     private func publish() {
         if selectedType == .all {
-            let filesAndApps = mergeScannedApps(into: fileResults).prefix(allFileCap)
+            let fileRows = mergeScannedApps(into: fileResults)
+            let filesAndApps = Array(fileRows.prefix(pagedAllFileCap))
             var combined: [SearchResult] = []
             combined += filesAndApps
             if allIncludedTypes.contains(.messages) {
-                combined += messageResults.prefix(allMessageCap)
+                combined += messageResults.prefix(pagedAllMessageCap)
             }
             if allIncludedTypes.contains(.notes) {
-                combined += noteResults.prefix(allNoteCap)
+                combined += noteResults.prefix(pagedAllNoteCap)
             }
-            results = Array(combined.prefix(displayCap))
+            if allIncludedTypes.contains(.mail) {
+                combined += mailResults.prefix(pagedAllMailCap)
+            }
+            if allIncludedTypes.contains(.calendar) {
+                combined += calendarResults.prefix(pagedAllCalendarCap)
+            }
+            canLoadMore = fileRows.count > pagedAllFileCap
+                || (allIncludedTypes.contains(.messages)
+                    && messageResults.count > pagedAllMessageCap)
+                || (allIncludedTypes.contains(.notes)
+                    && noteResults.count > pagedAllNoteCap)
+                || (allIncludedTypes.contains(.mail)
+                    && mailResults.count > pagedAllMailCap)
+                || (allIncludedTypes.contains(.calendar)
+                    && calendarResults.count > pagedAllCalendarCap)
+            results = Array(combined.prefix(pageLimit))
+            isLoadingMore = false
         } else {
-            results = fileResults
+            publishPage(fileResults)
         }
     }
 
@@ -652,10 +901,49 @@ final class SearchEngine: ObservableObject {
 
     // MARK: - Messages
 
+    func messageThreadPreview(for result: SearchResult,
+                              completion: @escaping (MessageThreadPreview?) -> Void) {
+        guard let rowid = result.messageRowID else {
+            completion(nil)
+            return
+        }
+        messageQueue.async { [weak self] in
+            guard let self else { return }
+            self.messageStore.ensureLoaded()
+            self.contacts.ensureLoaded()
+            let records = self.messageStore.context(around: rowid)
+            let items = records.map { record in
+                let sender: String
+                if record.isFromMe {
+                    sender = "You"
+                } else {
+                    let handle = record.handle.isEmpty
+                        ? record.conversationHandle
+                        : record.handle
+                    sender = self.contacts.name(for: handle)
+                        ?? (handle.isEmpty ? result.name : handle)
+                }
+                return MessageThreadItem(
+                    id: record.rowid,
+                    body: record.text,
+                    sender: sender,
+                    date: record.date,
+                    isFromMe: record.isFromMe,
+                    isMatch: record.rowid == rowid
+                )
+            }
+            let preview = items.isEmpty
+                ? nil
+                : MessageThreadPreview(title: result.name, result: result, items: items)
+            DispatchQueue.main.async { completion(preview) }
+        }
+    }
+
     private func searchMessages(tokens: [String], token: Int) {
         nameQuery.stop()
         contentQuery.stop()
         contentQueryActive = false
+        let limit = pageLimit + 1
 
         messageQueue.async { [weak self] in
             guard let self else { return }
@@ -664,7 +952,8 @@ final class SearchEngine: ObservableObject {
             let needsAccess = self.messageStore.needsFullDiskAccess
             let resolver: ((String) -> String?)? =
                 self.contacts.isReady ? { self.contacts.name(for: $0) } : nil
-            let hits = self.messageStore.search(tokens: tokens, nameResolver: resolver,
+            let hits = self.messageStore.search(tokens: tokens, limit: limit,
+                                                nameResolver: resolver,
                                                 isCancelled: self.cancellation(for: token))
             let mapped = hits.map { rec in
                 SearchResult(message: rec,
@@ -675,8 +964,7 @@ final class SearchEngine: ObservableObject {
                 // Drop if superseded, or if the user has since left Messages.
                 guard token == self.searchToken, self.selectedType.isMessages else { return }
                 self.needsFullDiskAccess = needsAccess
-                self.results = mapped
-                self.isSearching = false
+                self.publishPage(mapped)
             }
         }
     }
@@ -687,22 +975,114 @@ final class SearchEngine: ObservableObject {
         nameQuery.stop()
         contentQuery.stop()
         contentQueryActive = false
+        let limit = pageLimit + 1
 
         messageQueue.async { [weak self] in
             guard let self else { return }
             self.notesStore.ensureLoaded()
             let needsAccess = self.notesStore.needsFullDiskAccess
-            let mapped = self.notesStore.search(tokens: tokens,
+            let mapped = self.notesStore.search(tokens: tokens, limit: limit,
                                                 isCancelled: self.cancellation(for: token))
                 .map { SearchResult(note: $0) }
 
             DispatchQueue.main.async {
                 guard token == self.searchToken, self.selectedType.isNotes else { return }
                 self.needsFullDiskAccess = needsAccess
-                self.results = mapped
-                self.isSearching = false
+                self.publishPage(mapped)
             }
         }
+    }
+
+    // MARK: - Mail
+
+    private func searchMail(tokens: [String], token: Int) {
+        nameQuery.stop()
+        contentQuery.stop()
+        contentQueryActive = false
+        let limit = pageLimit + 1
+
+        messageQueue.async { [weak self] in
+            guard let self else { return }
+            self.mailStore.ensureLoaded()
+            let needsAccess = self.mailStore.needsFullDiskAccess
+            let needsSetup = self.mailStore.needsSetup
+            let mapped = self.mailStore.search(tokens: tokens, limit: limit,
+                                               isCancelled: self.cancellation(for: token))
+                .map { SearchResult(mail: $0) }
+
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType.isMail else { return }
+                self.needsFullDiskAccess = needsAccess
+                self.mailNeedsSetup = needsSetup
+                self.publishPage(mapped)
+            }
+        }
+    }
+
+    private func searchGmail(tokens: [String], token: Int) {
+        nameQuery.stop()
+        contentQuery.stop()
+        contentQueryActive = false
+        let limit = pageLimit + 1
+
+        messageQueue.async { [weak self] in
+            guard let self else { return }
+            self.mailStore.ensureLoaded()
+            let needsAccess = self.mailStore.needsFullDiskAccess
+            let needsSetup = self.mailStore.needsSetup || !self.mailStore.hasGmailAccount
+            let mapped = self.mailStore.search(tokens: tokens, limit: limit,
+                                               gmailOnly: true,
+                                               isCancelled: self.cancellation(for: token))
+                .map { SearchResult(mail: $0) }
+
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType.isGmail else { return }
+                self.needsFullDiskAccess = needsAccess
+                self.gmailNeedsSetup = needsSetup
+                self.publishPage(mapped)
+            }
+        }
+    }
+
+    // MARK: - Calendar
+
+    private func searchCalendar(tokens: [String], token: Int) {
+        nameQuery.stop()
+        contentQuery.stop()
+        contentQueryActive = false
+        let limit = pageLimit + 1
+
+        calendarQueue.async { [weak self] in
+            guard let self else { return }
+            let permission = self.calendarStore.permissionState
+            let mapped = permission == .granted
+                ? self.calendarStore.search(tokens: tokens, limit: limit,
+                                            isCancelled: self.cancellation(for: token))
+                    .map { SearchResult(calendar: $0) }
+                : []
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType.isCalendar else { return }
+                self.calendarPermission = permission
+                self.publishPage(mapped)
+            }
+        }
+    }
+
+    func requestCalendarAccess() {
+        calendarStore.requestAccess { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.calendarPermission = self.calendarStore.permissionState
+                self.calendarStore.refresh()
+                if self.selectedType.isCalendar { self.scheduleSearch() }
+            }
+        }
+    }
+
+    func refreshCalendarAccess() {
+        calendarStore.refresh()
+        calendarPermission = calendarStore.permissionState
+        if selectedType.isCalendar { scheduleSearch() }
     }
 
     // MARK: - Clipboard
@@ -712,8 +1092,9 @@ final class SearchEngine: ObservableObject {
         contentQuery.stop()
         contentQueryActive = false
         needsFullDiskAccess = false
-        results = ClipboardStore.shared.search(tokens: tokens).map { SearchResult(clip: $0) }
-        isSearching = false
+        let rows = ClipboardStore.shared.search(tokens: tokens, limit: pageLimit + 1)
+            .map { SearchResult(clip: $0) }
+        publishPage(rows)
     }
 
     // MARK: - Browser history
@@ -722,12 +1103,13 @@ final class SearchEngine: ObservableObject {
         nameQuery.stop()
         contentQuery.stop()
         contentQueryActive = false
+        let limit = pageLimit + 1
 
         messageQueue.async { [weak self] in
             guard let self else { return }
             self.historyStore.ensureLoaded()
             let safariDenied = self.historyStore.safariDenied
-            let mapped = self.historyStore.search(tokens: tokens,
+            let mapped = self.historyStore.search(tokens: tokens, limit: limit,
                                                   isCancelled: self.cancellation(for: token))
                 .map { SearchResult(history: $0) }
 
@@ -737,8 +1119,7 @@ final class SearchEngine: ObservableObject {
                 // as a slim footer instead.
                 self.needsFullDiskAccess = false
                 self.historySafariDenied = safariDenied
-                self.results = mapped
-                self.isSearching = false
+                self.publishPage(mapped)
             }
         }
     }
@@ -750,18 +1131,18 @@ final class SearchEngine: ObservableObject {
         contentQuery.stop()
         contentQueryActive = false
         needsFullDiskAccess = false
+        let limit = pageLimit + 1
 
         recentsQueue.async { [weak self] in
             guard let self else { return }
-            let rows = self.recentsStore.search(tokens: tokens,
+            let rows = self.recentsStore.search(tokens: tokens, limit: limit,
                                                 isCancelled: self.cancellation(for: token))
             let mapped = rows.map { SearchResult(recent: $0) }
 
             DispatchQueue.main.async {
                 guard token == self.searchToken, self.selectedType.isRecents else { return }
                 self.fileResults = mapped
-                self.results = mapped
-                self.isSearching = false
+                self.publishPage(mapped)
             }
         }
     }
@@ -773,18 +1154,18 @@ final class SearchEngine: ObservableObject {
         contentQuery.stop()
         contentQueryActive = false
         needsFullDiskAccess = false
+        let limit = pageLimit + 1
 
         recentsQueue.async { [weak self] in
             guard let self else { return }
-            let rows = self.appStore.search(tokens: tokens,
+            let rows = self.appStore.search(tokens: tokens, limit: limit,
                                             isCancelled: self.cancellation(for: token))
             let mapped = rows.map { SearchResult(app: $0) }
 
             DispatchQueue.main.async {
                 guard token == self.searchToken, self.selectedType.isApps else { return }
                 self.fileResults = mapped
-                self.results = mapped
-                self.isSearching = false
+                self.publishPage(mapped)
             }
         }
     }
@@ -798,6 +1179,7 @@ final class SearchEngine: ObservableObject {
             guard let self else { return }
             self.messageStore.ensureLoaded()
             self.notesStore.ensureLoaded()
+            self.mailStore.ensureLoaded()
             self.historyStore.ensureLoaded()
             let needsAccess = self.messageStore.needsFullDiskAccess
             DispatchQueue.main.async { self.needsFullDiskAccess = needsAccess }
@@ -808,17 +1190,29 @@ final class SearchEngine: ObservableObject {
     /// Access prompt can appear even before the user types anything.
     private func checkDatabaseAccess() {
         let wantsNotes = selectedType.isNotes
+        let wantsMail = selectedType.isMail || selectedType.isGmail
+        let wantsGmail = selectedType.isGmail
         messageQueue.async { [weak self] in
             guard let self else { return }
             let needsAccess: Bool
             if wantsNotes {
                 self.notesStore.ensureLoaded()
                 needsAccess = self.notesStore.needsFullDiskAccess
+            } else if wantsMail {
+                self.mailStore.ensureLoaded()
+                needsAccess = self.mailStore.needsFullDiskAccess
             } else {
                 self.messageStore.ensureLoaded()
                 needsAccess = self.messageStore.needsFullDiskAccess
             }
-            DispatchQueue.main.async { self.needsFullDiskAccess = needsAccess }
+            let mailNeedsSetup = wantsMail && !wantsGmail && self.mailStore.needsSetup
+            let gmailNeedsSetup = wantsGmail
+                && (self.mailStore.needsSetup || !self.mailStore.hasGmailAccount)
+            DispatchQueue.main.async {
+                self.needsFullDiskAccess = needsAccess
+                self.mailNeedsSetup = mailNeedsSetup
+                self.gmailNeedsSetup = gmailNeedsSetup
+            }
         }
     }
 
@@ -827,6 +1221,11 @@ final class SearchEngine: ObservableObject {
     /// new clipboard entries) and self-heals any view that wedged on a stale
     /// publish - without waiting for the user to retype.
     func refreshForPanelShow() {
+        recentsStore.refresh()
+        if selectedType.isCalendar {
+            calendarStore.refresh()
+            calendarPermission = calendarStore.permissionState
+        }
         scheduleSearch()
     }
 
@@ -835,6 +1234,7 @@ final class SearchEngine: ObservableObject {
     func retryMessageAccess() {
         messageStore.retry()
         notesStore.retry()
+        mailStore.retry()
         historyStore.retry()
         if selectedType.needsFullDiskAccess { scheduleSearch() }
     }
@@ -842,7 +1242,8 @@ final class SearchEngine: ObservableObject {
     // MARK: - Predicates
 
     /// Each token must appear in the display name OR the on-disk file name.
-    private func namePredicate(tokens: [String], trees: [String],
+    private func namePredicate(tokens: [String], trees: [String], extensions: [String],
+                               pathPrefixes: [String],
                                excludedTrees: [String] = []) -> NSPredicate {
         let perToken: [NSPredicate] = tokens.map { token in
             NSCompoundPredicate(orPredicateWithSubpredicates: [
@@ -851,24 +1252,44 @@ final class SearchEngine: ObservableObject {
             ])
         }
         let base = Self.combine(perToken, type: .and) ?? NSPredicate(value: true)
-        return applyTypeFilter(base, trees: trees, excludedTrees: excludedTrees)
+        return applyTypeFilter(base, trees: trees, extensions: extensions,
+                               pathPrefixes: pathPrefixes,
+                               excludedTrees: excludedTrees)
     }
 
     /// Each token must appear in the indexed text contents of the file.
-    private func contentPredicate(tokens: [String], trees: [String],
+    private func contentPredicate(tokens: [String], trees: [String], extensions: [String],
+                                  pathPrefixes: [String],
                                   excludedTrees: [String] = []) -> NSPredicate {
         let perToken = tokens.map { NSPredicate(format: "kMDItemTextContent CONTAINS[cd] %@", $0) }
         let base = Self.combine(perToken, type: .and) ?? NSPredicate(value: true)
-        return applyTypeFilter(base, trees: trees, excludedTrees: excludedTrees)
+        return applyTypeFilter(base, trees: trees, extensions: extensions,
+                               pathPrefixes: pathPrefixes,
+                               excludedTrees: excludedTrees)
     }
 
     private func applyTypeFilter(_ base: NSPredicate, trees: [String],
+                                 extensions: [String],
+                                 pathPrefixes: [String],
                                  excludedTrees: [String]) -> NSPredicate {
         var predicates = [base]
-        if !trees.isEmpty {
-            let typePredicates = trees.map { NSPredicate(format: "kMDItemContentTypeTree == %@", $0) }
+        if !trees.isEmpty || !extensions.isEmpty {
+            var typePredicates = trees.map {
+                NSPredicate(format: "kMDItemContentTypeTree == %@", $0)
+            }
+            typePredicates += extensions.map {
+                NSPredicate(format: "kMDItemFSName ENDSWITH[cd] %@", "." + $0)
+            }
             if let included = Self.combine(typePredicates, type: .or) {
                 predicates.append(included)
+            }
+        }
+        if !pathPrefixes.isEmpty {
+            let pathPredicates = pathPrefixes.map {
+                NSPredicate(format: "kMDItemPath BEGINSWITH[cd] %@", $0)
+            }
+            if let includedPaths = Self.combine(pathPredicates, type: .or) {
+                predicates.append(includedPaths)
             }
         }
         predicates += excludedTrees.map {
@@ -898,11 +1319,14 @@ final class SearchEngine: ObservableObject {
         guard selectedType.usesFileIndex else { return }
 
         var merged: [String: SearchResult] = [:]
+        let wanted = selectedType == .all ? pagedAllFileCap + 1 : pageLimit + 1
 
         // Name matches first so they win on dedupe against content matches.
-        readResults(from: nameQuery, cap: nameReadCap, matchKind: .name, into: &merged)
+        readResults(from: nameQuery, cap: max(nameReadCap, wanted * 2),
+                    matchKind: .name, into: &merged)
         if contentQueryActive {
-            readResults(from: contentQuery, cap: contentReadCap, matchKind: .content, into: &merged)
+            readResults(from: contentQuery, cap: max(contentReadCap, wanted),
+                        matchKind: .content, into: &merged)
         }
 
         // Score once per result (folding is not free), then sort.
@@ -915,7 +1339,7 @@ final class SearchEngine: ObservableObject {
                 if da != db { return da > db }
                 return a.result.name.localizedCaseInsensitiveCompare(b.result.name) == .orderedAscending
             }
-            .prefix(displayCap)
+            .prefix(wanted)
             .map(\.result)
         publish()
 
@@ -969,10 +1393,30 @@ final class SearchEngine: ObservableObject {
     /// Docs to accidentally suppress a still-visible PDF source.
     private func isIncludedInAll(_ result: SearchResult) -> Bool {
         let type: FileType?
-        if result.isApp {
+        if FileType.iCloudDrive.pathPrefixes.contains(where: result.path.hasPrefix) {
+            type = .iCloudDrive
+        } else if FileType.googleDrive.pathPrefixes.contains(where: result.path.hasPrefix) {
+            type = .googleDrive
+        } else if FileType.oneDrive.pathPrefixes.contains(where: result.path.hasPrefix) {
+            type = .oneDrive
+        } else if FileType.dropbox.pathPrefixes.contains(where: result.path.hasPrefix) {
+            type = .dropbox
+        } else if result.isApp {
             type = .apps
         } else if result.isFolder {
             type = .folders
+        } else if FileType.word.filenameExtensions.contains(
+            URL(fileURLWithPath: result.path).pathExtension.lowercased()
+        ) {
+            type = .word
+        } else if FileType.excel.filenameExtensions.contains(
+            URL(fileURLWithPath: result.path).pathExtension.lowercased()
+        ) {
+            type = .excel
+        } else if FileType.powerPoint.filenameExtensions.contains(
+            URL(fileURLWithPath: result.path).pathExtension.lowercased()
+        ) {
+            type = .powerPoint
         } else if result.contentTypes.contains("com.adobe.pdf") {
             type = .pdfs
         } else if result.contentTypes.contains("public.image") {

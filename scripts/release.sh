@@ -83,7 +83,7 @@ if ! swift build -c release; then
   mkdir -p "$BUILD_DIR"
   SOURCE_FILES=()
   while IFS= read -r file; do
-    SOURCE_FILES+=("$file")
+    [[ -f "$file" ]] && SOURCE_FILES+=("$file")
   done < <(git ls-files --cached --others --exclude-standard \
     'Sources/Beacon/*.swift' 'Sources/Beacon/**/*.swift')
 
@@ -95,7 +95,7 @@ if ! swift build -c release; then
     -framework SwiftUI \
     -framework AppKit \
     -framework Carbon \
-    -framework ApplicationServices \
+    -framework EventKit \
     -framework UniformTypeIdentifiers \
     -framework QuickLook \
     -framework QuickLookThumbnailing \

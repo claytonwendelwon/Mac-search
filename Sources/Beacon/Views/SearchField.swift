@@ -15,7 +15,6 @@ struct SearchField: NSViewRepresentable {
     var onReveal: () -> Void
     var onPreview: () -> Void
     var onCopy: () -> Void
-    var onJump: () -> Void
     var onCancel: () -> Void
     var onCycleFilter: (_ forward: Bool) -> Void
 
@@ -121,7 +120,6 @@ struct SearchField: NSViewRepresentable {
             switch characters.lowercased() {
             case "y": parent.onPreview(); return true
             case "c": parent.onCopy(); return true
-            case "j": parent.onJump(); return true
             case "\r": parent.onReveal(); return true
             default: return false
             }

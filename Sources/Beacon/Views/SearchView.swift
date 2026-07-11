@@ -13,6 +13,8 @@ struct SearchView: View {
     @State private var dragGrabOffset: CGSize = .zero
     @State private var filterFrames: [FileType: CGRect] = [:]
     @State private var showAddFilters = false
+    @State private var activePreview: ActivePreview?
+    @State private var isLoadingPreview = false
     @Environment(\.colorScheme) private var colorScheme
 
     /// One-time onboarding hint (the global hotkey) shown until dismissed.
@@ -28,9 +30,13 @@ struct SearchView: View {
         VStack(spacing: 0) {
             searchField
             glassDivider
-            filterChips
-            glassDivider
-            if filterLayout.isEditing {
+            if activePreview == nil {
+                filterChips
+                glassDivider
+            }
+            if let activePreview {
+                previewContent(activePreview)
+            } else if filterLayout.isEditing {
                 editModeGuidance
             } else {
                 if !hasSeenWelcome { welcomeBanner }
@@ -92,6 +98,15 @@ struct SearchView: View {
             }
             onEditingChanged(editing)
         }
+        .onExitCommand {
+            if activePreview != nil {
+                closePreview()
+            } else if filterLayout.isEditing {
+                finishEditing()
+            } else {
+                onClose()
+            }
+        }
     }
 
     private var panelShape: RoundedRectangle {
@@ -114,64 +129,81 @@ struct SearchView: View {
 
     private var searchField: some View {
         HStack(spacing: 12) {
-            Image(systemName: filterLayout.isEditing ? "slider.horizontal.3" : "magnifyingglass")
-                .font(.system(size: 21, weight: .medium))
-                .foregroundStyle(Color.secondary.opacity(0.82))
-
-            SearchField(
-                text: $engine.queryText,
-                focusToken: engine.focusRequestToken,
-                placeholder: filterLayout.isEditing ? "Edit your experience…" : "Search your Mac…",
-                isEnabled: !filterLayout.isEditing,
-                onMoveDown: { moveSelection(1) },
-                onMoveUp: { moveSelection(-1) },
-                onSubmit: { openSelected() },
-                onReveal: { revealSelected() },
-                onPreview: { previewSelected() },
-                onCopy: { copySelectedPath() },
-                onJump: { jumpToSelectedMessage() },
-                onCancel: {
-                    if filterLayout.isEditing {
-                        finishEditing()
-                    } else {
-                        onClose()
-                    }
-                },
-                onCycleFilter: { forward in cycleFilter(forward: forward) }
-            )
-            .frame(height: 34)
-
-            if engine.isSearching {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.secondary)
-                    .transition(.opacity)
-            }
-
-            if filterLayout.isEditing {
+            if let activePreview {
+                Image(systemName: activePreview.symbol)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(activePreview.title)
+                    .font(.system(size: 20, weight: .semibold))
+                    .lineLimit(1)
+                Spacer()
                 Button {
-                    showAddFilters.toggle()
+                    closePreview()
                 } label: {
-                    Label("Add", systemImage: "plus")
+                    Label("Back to search", systemImage: "chevron.backward")
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.accentColor)
-                .disabled(filterLayout.hiddenFilters.isEmpty)
-                .popover(isPresented: $showAddFilters, arrowEdge: .top) {
-                    addFiltersPopover
+            } else {
+                Image(systemName: filterLayout.isEditing ? "slider.horizontal.3" : "magnifyingglass")
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(Color.secondary.opacity(0.82))
+
+                SearchField(
+                    text: $engine.queryText,
+                    focusToken: engine.focusRequestToken,
+                    placeholder: filterLayout.isEditing ? "Edit your experience…" : "Search your Mac…",
+                    isEnabled: !filterLayout.isEditing,
+                    onMoveDown: { moveSelection(1) },
+                    onMoveUp: { moveSelection(-1) },
+                    onSubmit: { openSelected() },
+                    onReveal: { revealSelected() },
+                    onPreview: { previewSelected() },
+                    onCopy: { copySelectedPath() },
+                    onCancel: {
+                        if filterLayout.isEditing {
+                            finishEditing()
+                        } else {
+                            onClose()
+                        }
+                    },
+                    onCycleFilter: { forward in cycleFilter(forward: forward) }
+                )
+                .frame(height: 34)
+
+                if engine.isSearching || isLoadingPreview {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.secondary)
+                        .transition(.opacity)
                 }
 
-                Button {
-                    finishEditing()
-                } label: {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
+                if filterLayout.isEditing {
+                    Button {
+                        showAddFilters.toggle()
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .disabled(filterLayout.hiddenFilters.isEmpty)
+                    .popover(isPresented: $showAddFilters, arrowEdge: .bottom) {
+                        addFiltersPopover
+                    }
+
+                    Button {
+                        finishEditing()
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .help("Done editing")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
-                .help("Done editing")
             }
         }
         .padding(.horizontal, 20)
@@ -271,7 +303,10 @@ struct SearchView: View {
     }
 
     private func filterChipLabel(_ type: FileType, isSelected: Bool) -> some View {
-        Label(type.title, systemImage: type.symbol)
+        HStack(spacing: 5) {
+            filterIcon(type, size: 13)
+            Text(type.title)
+        }
             .font(.system(size: 12, weight: .semibold))
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
@@ -388,20 +423,29 @@ struct SearchView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(filterLayout.hiddenFilters) { type in
-                    Button {
-                        filterLayout.add(type)
-                        if filterLayout.hiddenFilters.isEmpty { showAddFilters = false }
-                    } label: {
-                        HStack {
-                            Label(type.title, systemImage: type.symbol)
-                            Spacer()
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundStyle(Color.accentColor)
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(filterLayout.hiddenFilters) { type in
+                            Button {
+                                filterLayout.add(type)
+                                engine.selectedType = type
+                                if filterLayout.hiddenFilters.isEmpty { showAddFilters = false }
+                            } label: {
+                                HStack {
+                                    filterIcon(type, size: 14)
+                                    Text(type.title)
+                                    Spacer()
+                                    Image(systemName: "plus.circle.fill")
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.vertical, 2)
                 }
+                .frame(height: min(CGFloat(filterLayout.hiddenFilters.count) * 34, 240))
             }
             Divider()
             Button("Restore Defaults") {
@@ -414,6 +458,58 @@ struct SearchView: View {
         }
         .frame(width: 220)
         .padding(16)
+    }
+
+    @ViewBuilder
+    private func filterIcon(_ type: FileType, size: CGFloat) -> some View {
+        switch type {
+        case .word:
+            OfficeSourceMark(letter: "W", color: Color(red: 0.10, green: 0.42, blue: 0.78))
+                .frame(width: size, height: size)
+        case .excel:
+            OfficeSourceMark(letter: "X", color: Color(red: 0.06, green: 0.47, blue: 0.25))
+                .frame(width: size, height: size)
+        case .powerPoint:
+            OfficeSourceMark(letter: "P", color: Color(red: 0.82, green: 0.27, blue: 0.13))
+                .frame(width: size, height: size)
+        case .mail:
+            Image(nsImage: NSWorkspace.shared.icon(
+                forFile: "/System/Applications/Mail.app"
+            ))
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
+        case .calendar:
+            Image(nsImage: NSWorkspace.shared.icon(
+                forFile: "/System/Applications/Calendar.app"
+            ))
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
+        case .gmail:
+            GmailMark()
+                .frame(width: size, height: size * 0.8)
+        case .googleDrive:
+            GoogleDriveMark()
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        case .oneDrive:
+            Image(systemName: "cloud.fill")
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(Color(red: 0.00, green: 0.47, blue: 0.84))
+                .frame(width: size, height: size)
+        case .dropbox:
+            DropboxMark()
+                .frame(width: size, height: size)
+        case .iCloudDrive:
+            Image(systemName: "icloud.fill")
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(Color(red: 0.12, green: 0.55, blue: 0.96))
+                .frame(width: size, height: size)
+        default:
+            Image(systemName: type.symbol)
+                .frame(width: size, height: size)
+        }
     }
 
     private var editModeGuidance: some View {
@@ -435,12 +531,175 @@ struct SearchView: View {
         .onTapGesture { finishEditing() }
     }
 
+    @ViewBuilder
+    private func previewContent(_ preview: ActivePreview) -> some View {
+        switch preview {
+        case .message(let thread):
+            messageThreadView(thread)
+        case .note(let result):
+            notePreview(result)
+        case .mail(let result):
+            mailPreview(result)
+        case .calendar(let result):
+            calendarPreview(result)
+        case .clipboard(let result):
+            textPreview(title: result.name,
+                        body: result.messageBody ?? "",
+                        date: result.modified)
+        }
+    }
+
+    private func messageThreadView(_ thread: MessageThreadPreview) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(thread.items) { item in
+                        HStack {
+                            if item.isFromMe { Spacer(minLength: 90) }
+                            VStack(alignment: item.isFromMe ? .trailing : .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Text(item.sender)
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                    if item.isMatch {
+                                        Text("Match")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                }
+                                Text(Highlight.attributed(item.body, tokens: highlightTokens,
+                                                          base: .system(size: 13),
+                                                          strong: .system(size: 13, weight: .bold)))
+                                    .textSelection(.enabled)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        item.isFromMe
+                                            ? Color.accentColor.opacity(0.16)
+                                            : Color.primary.opacity(0.07),
+                                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .stroke(item.isMatch ? Color.accentColor : .clear,
+                                                    lineWidth: item.isMatch ? 1.5 : 0)
+                                    )
+                                Text(item.date.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: 480, alignment: item.isFromMe ? .trailing : .leading)
+                            if !item.isFromMe { Spacer(minLength: 90) }
+                        }
+                        .id(item.id)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+            }
+            .onAppear {
+                if let match = thread.items.first(where: \.isMatch) {
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(match.id, anchor: .center)
+                    }
+                }
+            }
+        }
+    }
+
+    private func notePreview(_ result: SearchResult) -> some View {
+        textPreview(title: result.name,
+                    body: result.messageBody ?? "",
+                    date: result.modified)
+    }
+
+    private func mailPreview(_ result: SearchResult) -> some View {
+        let sender = result.kind.isEmpty ? "Unknown Sender" : result.kind
+        let body = "From: \(sender)\n\n\(result.messageBody ?? "No message summary is available.")"
+        return textPreview(title: result.name, body: body, date: result.modified)
+    }
+
+    private func calendarPreview(_ result: SearchResult) -> some View {
+        let start = result.modified?.formatted(date: .long, time: .shortened) ?? "Unknown date"
+        let end = result.dateAdded?.formatted(date: .long, time: .shortened) ?? ""
+        let calendar = result.kind.isEmpty ? "Calendar" : result.kind
+        let dateRange = end.isEmpty ? start : "\(start) – \(end)"
+        let body = """
+        Calendar: \(calendar)
+        When: \(dateRange)
+
+        \(result.messageBody ?? "No additional event details.")
+        """
+        return textPreview(title: result.name, body: body, date: nil)
+    }
+
+    private func textPreview(title: String, body: String, date: Date?) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(title)
+                    .font(.system(size: 24, weight: .bold))
+                    .textSelection(.enabled)
+                if let date {
+                    Text(date.formatted(date: .long, time: .shortened))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Divider()
+                Text(Highlight.attributed(body, tokens: highlightTokens,
+                                          base: .system(size: 14),
+                                          strong: .system(size: 14, weight: .bold)))
+                    .textSelection(.enabled)
+                    .lineSpacing(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(24)
+        }
+    }
+
+    private func showPreview(for result: SearchResult) {
+        switch result.source {
+        case .message:
+            isLoadingPreview = true
+            engine.messageThreadPreview(for: result) { preview in
+                isLoadingPreview = false
+                if let preview { activePreview = .message(preview) }
+            }
+        case .note:
+            activePreview = .note(result)
+        case .mail:
+            activePreview = .mail(result)
+        case .calendar:
+            activePreview = .calendar(result)
+        case .clipboard:
+            activePreview = .clipboard(result)
+        default:
+            break
+        }
+    }
+
+    private func closePreview() {
+        activePreview = nil
+        isLoadingPreview = false
+        engine.focusRequestToken &+= 1
+    }
+
     // MARK: - Results
 
     private var resultsArea: some View {
         Group {
-            if engine.selectedType.needsFullDiskAccess && engine.needsFullDiskAccess {
+            if let requirement = engine.selectedType.externalSourceRequirement,
+               requirement.state != .ready {
+                externalSourcePrompt(requirement)
+            } else if engine.selectedType == .iCloudDrive && !iCloudDriveReady {
+                iCloudDriveSetupPrompt
+            } else if engine.selectedType.needsFullDiskAccess && engine.needsFullDiskAccess {
                 fullDiskAccessPrompt
+            } else if engine.selectedType.isMail && engine.mailNeedsSetup {
+                mailSetupPrompt
+            } else if engine.selectedType.isGmail && engine.gmailNeedsSetup {
+                gmailSetupPrompt
+            } else if engine.selectedType.isCalendar && engine.calendarPermission != .granted {
+                calendarPermissionPrompt
             } else if !engine.results.isEmpty {
                 // Clipboard mode shows recent history even with an empty query.
                 resultsList
@@ -453,6 +712,190 @@ struct SearchView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func externalSourcePrompt(_ requirement: ExternalSourceRequirement) -> some View {
+        VStack(spacing: 11) {
+            filterIcon(engine.selectedType, size: 38)
+                .font(.system(size: 32))
+                .foregroundStyle(.tertiary)
+
+            if requirement.state == .notInstalled {
+                Text("\(requirement.appName) isn’t installed")
+                    .font(.system(size: 15, weight: .medium))
+                Text("Install \(requirement.appName) and sign in to search your files with Beacon.")
+                    .font(.system(size: 12))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("Install \(requirement.appName)") {
+                        requirement.install()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Check Again") {
+                        engine.refreshForPanelShow()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.top, 2)
+            } else {
+                Text("Finish setting up \(requirement.appName)")
+                    .font(.system(size: 15, weight: .medium))
+                Text("Open \(requirement.appName), sign in, and wait for it to appear in Finder.\nBeacon will search the account currently connected there.")
+                    .font(.system(size: 12))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("Open \(requirement.appName)") {
+                        requirement.openApplication()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Check Again") {
+                        engine.refreshForPanelShow()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+    }
+
+    private var iCloudDriveReady: Bool {
+        FileType.iCloudDrive.pathPrefixes.contains {
+            FileManager.default.fileExists(atPath: $0)
+        }
+    }
+
+    private var iCloudDriveSetupPrompt: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "icloud.fill")
+                .font(.system(size: 32))
+                .foregroundStyle(Color(red: 0.12, green: 0.55, blue: 0.96))
+            Text("Turn on iCloud Drive")
+                .font(.system(size: 15, weight: .medium))
+            Text("Enable iCloud Drive in System Settings and let it appear in Finder.\nBeacon will search the Apple Account currently connected to this Mac.")
+                .font(.system(size: 12))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Open iCloud Settings") {
+                    if let url = URL(
+                        string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings"
+                    ) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Check Again") {
+                    engine.refreshForPanelShow()
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+    }
+
+    private var mailSetupPrompt: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "envelope.badge")
+                .font(.system(size: 30))
+                .foregroundStyle(.tertiary)
+            Text("Set up Apple Mail")
+                .font(.system(size: 15, weight: .medium))
+            Text("Add or sign into an account in Mail, then return to Beacon.\nBeacon searches every account currently connected there.")
+                .font(.system(size: 12))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Open Mail") {
+                    NSWorkspace.shared.open(
+                        URL(fileURLWithPath: "/System/Applications/Mail.app")
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Check Again") {
+                    engine.retryMessageAccess()
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+    }
+
+    private var gmailSetupPrompt: some View {
+        VStack(spacing: 10) {
+            GmailMark()
+                .frame(width: 34, height: 27)
+            Text("Connect Gmail to Apple Mail")
+                .font(.system(size: 15, weight: .medium))
+            Text("Add your Gmail or Google Workspace account in Mail first.\nBeacon will then search that account locally—no Google API login required.")
+                .font(.system(size: 12))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Open Mail") {
+                    NSWorkspace.shared.open(
+                        URL(fileURLWithPath: "/System/Applications/Mail.app")
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Check Again") {
+                    engine.retryMessageAccess()
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+    }
+
+    private var calendarPermissionPrompt: some View {
+        VStack(spacing: 10) {
+            Image(nsImage: NSWorkspace.shared.icon(
+                forFile: "/System/Applications/Calendar.app"
+            ))
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 36, height: 36)
+            Text(engine.calendarPermission == .notDetermined
+                 ? "Allow Calendar access"
+                 : "Calendar access is off")
+                .font(.system(size: 15, weight: .medium))
+            Text("Beacon reads event titles, dates, locations, and notes locally.\nYour calendar data never leaves this Mac.")
+                .font(.system(size: 12))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+            if engine.calendarPermission == .notDetermined {
+                Button("Allow Calendar Access") {
+                    engine.requestCalendarAccess()
+                }
+                .buttonStyle(.borderedProminent)
+            } else {
+                HStack(spacing: 8) {
+                    Button("Open Settings") {
+                        if let url = URL(
+                            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+                        ) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Check Again") {
+                        engine.refreshCalendarAccess()
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
     }
 
     /// First-launch onboarding strip: teaches the one thing a new user must
@@ -492,6 +935,9 @@ struct SearchView: View {
         case .recents: return "Recent files"
         case .messages: return "Search your messages"
         case .notes: return "Search your notes"
+        case .mail: return "Search your mail"
+        case .gmail: return "Search Gmail"
+        case .calendar: return "Search your calendar"
         case .clipboard: return "Clipboard history"
         case .history: return "Browser history"
         case .settings: return "System Settings"
@@ -504,6 +950,9 @@ struct SearchView: View {
         case .recents: return "Files you've opened or added recently appear here. Type to filter them."
         case .messages: return "Type a word, phrase, or contact to search your iMessage & SMS history."
         case .notes: return "Type a word or phrase to search across all your Apple Notes."
+        case .mail: return "Search subjects, senders, and message summaries across every account in Apple Mail."
+        case .gmail: return "Search the Gmail and Google Workspace accounts connected to Apple Mail."
+        case .calendar: return "Search event titles, locations, notes, and calendar names."
         case .clipboard: return "Copied text will appear here. Anything you copy is searchable and ready to paste back."
         case .history: return "Search every page you've visited in Safari, Chrome, Brave, Edge, and Arc."
         case .settings: return "Jump straight to Wi-Fi, Privacy, Displays, Keyboard, Full Disk Access, and more."
@@ -516,6 +965,9 @@ struct SearchView: View {
         case .history: return "Safari history"
         case .notes: return "Notes"
         case .messages: return "Messages"
+        case .mail: return "Apple Mail"
+        case .gmail: return "Gmail"
+        case .calendar: return "Calendar"
         case .settings: return "System Settings"
         default: return "Messages and Notes"
         }
@@ -569,11 +1021,41 @@ struct SearchView: View {
                             .id(index)
                             .onTapGesture(count: 2) {
                                 selectedIndex = index
-                                openSelected()
+                                if result.source == .message
+                                    || result.source == .note
+                                    || result.source == .mail
+                                    || result.source == .calendar
+                                    || result.source == .clipboard {
+                                    showPreview(for: result)
+                                } else if result.source == .file
+                                            && !result.isFolder && !result.isApp {
+                                    QuickLookController.shared.preview(result.url)
+                                } else {
+                                    openSelected()
+                                }
                             }
                             .onTapGesture {
                                 selectedIndex = index
                             }
+                    }
+                    if engine.canLoadMore || engine.isLoadingMore {
+                        HStack {
+                            Spacer()
+                            if engine.isLoadingMore {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Text("Loading more…")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .frame(height: 36)
+                        .id("load-more-\(engine.results.count)-\(engine.isLoadingMore)")
+                        .onAppear {
+                            engine.loadMore()
+                        }
                     }
                 }
                 .padding(.horizontal, 10)
@@ -596,6 +1078,8 @@ struct SearchView: View {
         case .file: return "Files & Apps"
         case .message: return "Messages"
         case .note: return "Notes"
+        case .mail: return "Mail"
+        case .calendar: return "Calendar"
         case .clipboard: return "Clipboard"
         case .history: return "History"
         case .settings: return "System Settings"
@@ -616,12 +1100,87 @@ struct SearchView: View {
     // MARK: - Footer
 
     private var footer: some View {
-        VStack(spacing: 0) {
-            if engine.selectedType == .history && engine.historySafariDenied {
-                safariAccessBanner
+        Group {
+            if let activePreview {
+                previewFooter(activePreview)
+            } else {
+                VStack(spacing: 0) {
+                    if engine.selectedType == .history && engine.historySafariDenied {
+                        safariAccessBanner
+                    }
+                    hintsRow
+                }
             }
-            hintsRow
         }
+    }
+
+    private func previewFooter(_ preview: ActivePreview) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                closePreview()
+            } label: {
+                Label("Back", systemImage: "chevron.backward")
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Button {
+                let body: String
+                switch preview {
+                case .message(let thread): body = thread.result.messageBody ?? ""
+                case .note(let result), .mail(let result),
+                     .calendar(let result), .clipboard(let result):
+                    body = result.messageBody ?? ""
+                }
+                ClipboardStore.shared.copyToPasteboard(body)
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+            .buttonStyle(.plain)
+
+            switch preview {
+            case .message(let thread):
+                Button {
+                    openMessage(thread.result)
+                    onClose()
+                } label: {
+                    Label("Open Conversation", systemImage: "arrow.up.forward.app")
+                }
+                .buttonStyle(.borderedProminent)
+            case .note(let result):
+                Button {
+                    openNote(result)
+                    onClose()
+                } label: {
+                    Label("Open in Notes", systemImage: "arrow.up.forward.app")
+                }
+                .buttonStyle(.borderedProminent)
+            case .mail(let result):
+                Button {
+                    openMail(result)
+                    onClose()
+                } label: {
+                    Label("Open in Mail", systemImage: "arrow.up.forward.app")
+                }
+                .buttonStyle(.borderedProminent)
+            case .calendar(let result):
+                Button {
+                    openCalendar(result)
+                    onClose()
+                } label: {
+                    Label("Open Calendar", systemImage: "arrow.up.forward.app")
+                }
+                .buttonStyle(.borderedProminent)
+            case .clipboard:
+                EmptyView()
+            }
+        }
+        .font(.system(size: 11, weight: .semibold))
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+        .background(.ultraThinMaterial)
+        .overlay(glassDivider, alignment: .top)
     }
 
     /// Slim, non-blocking notice in the History tab when Safari's database is
@@ -661,13 +1220,23 @@ struct SearchView: View {
                 switch selectedResult?.source ?? .file {
                 case .message:
                     hint("return", "Open in Messages")
-                    hint("⌘J", "Jump to match")
+                    hint("double-click", "Preview thread")
                     hint("⌘C", "Copy text")
                 case .note:
                     hint("return", "Open in Notes")
+                    hint("double-click", "Preview note")
                     hint("⌘C", "Copy text")
+                case .mail:
+                    hint("return", "Open in Mail")
+                    hint("double-click", "Open message")
+                    hint("⌘C", "Copy summary")
+                case .calendar:
+                    hint("return", "Open Calendar")
+                    hint("double-click", "Preview event")
+                    hint("⌘C", "Copy details")
                 case .clipboard:
                     hint("return", "Copy to clipboard")
+                    hint("double-click", "Preview text")
                     hint("⌘C", "Copy")
                 case .history:
                     hint("return", "Open in browser")
@@ -807,6 +1376,14 @@ struct SearchView: View {
             openNote(result)
             onClose()
             return
+        case .mail:
+            openMail(result)
+            onClose()
+            return
+        case .calendar:
+            openCalendar(result)
+            onClose()
+            return
         case .file:
             NSWorkspace.shared.open(result.url)
             onClose()
@@ -832,16 +1409,6 @@ struct SearchView: View {
         } else {
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Messages.app"))
         }
-    }
-
-    private func jumpToSelectedMessage() {
-        guard let result = selectedResult, result.source == .message else { return }
-        openMessage(result)
-        MessageJumpController.jumpToMatch(
-            body: result.messageBody ?? "",
-            query: engine.queryText
-        )
-        onClose()
     }
 
     /// Navigate to the exact note via AppleScript (Notes is scriptable). Prefer
@@ -879,6 +1446,27 @@ struct SearchView: View {
         }
     }
 
+    private func openMail(_ result: SearchResult) {
+        if let rawID = result.mailMessageID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawID.isEmpty {
+            let bareID = rawID.trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+            var components = URLComponents()
+            components.scheme = "message"
+            components.host = "<\(bareID)>"
+            if let url = components.url {
+                NSWorkspace.shared.open(url)
+                return
+            }
+        }
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Mail.app"))
+    }
+
+    private func openCalendar(_ result: SearchResult) {
+        NSWorkspace.shared.open(
+            URL(fileURLWithPath: "/System/Applications/Calendar.app")
+        )
+    }
+
     private func revealSelected() {
         guard let result = selectedResult else { return }
         guard result.source == .file else {
@@ -909,6 +1497,166 @@ struct SearchView: View {
         default: value = result.messageBody ?? ""
         }
         pb.setString(value, forType: .string)
+    }
+}
+
+private struct OfficeSourceMark: View {
+    let letter: String
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: geometry.size.width * 0.16, style: .continuous)
+                    .fill(color.opacity(0.82))
+                    .frame(width: geometry.size.width * 0.78,
+                           height: geometry.size.height * 0.78)
+                    .offset(x: geometry.size.width * 0.22,
+                            y: geometry.size.height * 0.11)
+                RoundedRectangle(cornerRadius: geometry.size.width * 0.13, style: .continuous)
+                    .fill(color)
+                    .frame(width: geometry.size.width * 0.68,
+                           height: geometry.size.height)
+                Text(letter)
+                    .font(.system(size: geometry.size.width * 0.55, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: geometry.size.width * 0.68,
+                           height: geometry.size.height)
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct GmailMark: View {
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            let line = max(1.5, width * 0.16)
+            ZStack {
+                Path { path in
+                    path.move(to: CGPoint(x: width * 0.08, y: height * 0.92))
+                    path.addLine(to: CGPoint(x: width * 0.08, y: height * 0.20))
+                }
+                .stroke(Color(red: 0.26, green: 0.52, blue: 0.96),
+                        style: StrokeStyle(lineWidth: line, lineCap: .square))
+                Path { path in
+                    path.move(to: CGPoint(x: width * 0.08, y: height * 0.20))
+                    path.addLine(to: CGPoint(x: width * 0.50, y: height * 0.58))
+                    path.addLine(to: CGPoint(x: width * 0.92, y: height * 0.20))
+                }
+                .stroke(Color(red: 0.92, green: 0.26, blue: 0.21),
+                        style: StrokeStyle(lineWidth: line, lineJoin: .round))
+                Path { path in
+                    path.move(to: CGPoint(x: width * 0.92, y: height * 0.20))
+                    path.addLine(to: CGPoint(x: width * 0.92, y: height * 0.92))
+                }
+                .stroke(Color(red: 0.20, green: 0.66, blue: 0.33),
+                        style: StrokeStyle(lineWidth: line, lineCap: .square))
+                Path { path in
+                    path.move(to: CGPoint(x: width * 0.08, y: height * 0.58))
+                    path.addLine(to: CGPoint(x: width * 0.08, y: height * 0.92))
+                }
+                .stroke(Color(red: 0.98, green: 0.74, blue: 0.02),
+                        style: StrokeStyle(lineWidth: line, lineCap: .square))
+            }
+        }
+        .aspectRatio(1.25, contentMode: .fit)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct DropboxMark: View {
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            Path { path in
+                func diamond(centerX: CGFloat, centerY: CGFloat) {
+                    let halfWidth = width * 0.22
+                    let halfHeight = height * 0.18
+                    path.move(to: CGPoint(x: centerX, y: centerY - halfHeight))
+                    path.addLine(to: CGPoint(x: centerX + halfWidth, y: centerY))
+                    path.addLine(to: CGPoint(x: centerX, y: centerY + halfHeight))
+                    path.addLine(to: CGPoint(x: centerX - halfWidth, y: centerY))
+                    path.closeSubpath()
+                }
+                diamond(centerX: width * 0.27, centerY: height * 0.25)
+                diamond(centerX: width * 0.73, centerY: height * 0.25)
+                diamond(centerX: width * 0.27, centerY: height * 0.62)
+                diamond(centerX: width * 0.73, centerY: height * 0.62)
+                diamond(centerX: width * 0.50, centerY: height * 0.88)
+            }
+            .fill(Color(red: 0.00, green: 0.38, blue: 0.95))
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct GoogleDriveMark: View {
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            ZStack {
+                Path { path in
+                    path.move(to: CGPoint(x: width * 0.36, y: height * 0.05))
+                    path.addLine(to: CGPoint(x: width * 0.59, y: height * 0.05))
+                    path.addLine(to: CGPoint(x: width * 0.23, y: height * 0.75))
+                    path.addLine(to: CGPoint(x: 0, y: height * 0.75))
+                    path.closeSubpath()
+                }
+                .fill(Color(red: 0.98, green: 0.74, blue: 0.02))
+
+                Path { path in
+                    path.move(to: CGPoint(x: width * 0.59, y: height * 0.05))
+                    path.addLine(to: CGPoint(x: width, y: height * 0.80))
+                    path.addLine(to: CGPoint(x: width * 0.77, y: height * 0.80))
+                    path.addLine(to: CGPoint(x: width * 0.48, y: height * 0.28))
+                    path.closeSubpath()
+                }
+                .fill(Color(red: 0.26, green: 0.52, blue: 0.96))
+
+                Path { path in
+                    path.move(to: CGPoint(x: width * 0.23, y: height * 0.75))
+                    path.addLine(to: CGPoint(x: width, y: height * 0.75))
+                    path.addLine(to: CGPoint(x: width * 0.86, y: height))
+                    path.addLine(to: CGPoint(x: width * 0.09, y: height))
+                    path.closeSubpath()
+                }
+                .fill(Color(red: 0.20, green: 0.66, blue: 0.33))
+            }
+        }
+        .aspectRatio(1.1, contentMode: .fit)
+    }
+}
+
+private enum ActivePreview {
+    case message(MessageThreadPreview)
+    case note(SearchResult)
+    case mail(SearchResult)
+    case calendar(SearchResult)
+    case clipboard(SearchResult)
+
+    var title: String {
+        switch self {
+        case .message(let thread): return thread.title
+        case .note(let result), .mail(let result),
+             .calendar(let result), .clipboard(let result): return result.name
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .message: return "message"
+        case .note: return "note.text"
+        case .mail: return "envelope.fill"
+        case .calendar: return "calendar"
+        case .clipboard: return "doc.on.clipboard"
+        }
     }
 }
 

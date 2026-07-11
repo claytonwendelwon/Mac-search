@@ -101,6 +101,20 @@ struct ResultRow: View {
                                         base: .system(size: 11),
                                         strong: .system(size: 11, weight: .semibold))
         }
+        if result.source == .mail {
+            let body = Highlight.snippet(result.messageBody ?? "", tokens: tokens)
+            let sender = result.kind.isEmpty ? "" : "\(result.kind) · "
+            return Highlight.attributed(sender + body, tokens: tokens,
+                                        base: .system(size: 11),
+                                        strong: .system(size: 11, weight: .semibold))
+        }
+        if result.source == .calendar {
+            let details = Highlight.snippet(result.messageBody ?? "", tokens: tokens)
+            let calendar = result.kind.isEmpty ? "" : "\(result.kind) · "
+            return Highlight.attributed(calendar + details, tokens: tokens,
+                                        base: .system(size: 11),
+                                        strong: .system(size: 11, weight: .semibold))
+        }
         if result.source == .message || result.source == .note {
             let body = Highlight.snippet(result.messageBody ?? "", tokens: tokens)
             let text = (result.source == .message && result.messageFromMe) ? "You: \(body)" : body
@@ -115,7 +129,8 @@ struct ResultRow: View {
 
     private var trailingDetail: String? {
         if result.source == .message || result.source == .note
-            || result.source == .clipboard || result.source == .history {
+            || result.source == .mail || result.source == .clipboard
+            || result.source == .history || result.source == .calendar {
             guard let date = result.modified else { return nil }
             return Self.relativeDate.localizedString(for: date, relativeTo: Date())
         }

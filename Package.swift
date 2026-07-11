@@ -14,7 +14,8 @@ let package = Package(
                 .swiftLanguageMode(.v5)
             ],
             linkerSettings: [
-                .linkedLibrary("sqlite3")
+                .linkedLibrary("sqlite3"),
+                .linkedFramework("EventKit")
             ]
         )
     ]

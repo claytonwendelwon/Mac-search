@@ -25,6 +25,11 @@ final class RecentsStore {
     private let windowDays = 30.0
     private let freshLaneHours = 48.0
     private let maxVisitedFilesPerRoot = 75_000
+    private var lastSearchTokens: [String] = []
+    private var lastSearchMatches: [RecentFileRecord] = []
+    private var hasCachedSearch = false
+    private let cacheLock = NSLock()
+    private var cacheGeneration = 0
 
     private let resourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
@@ -39,6 +44,14 @@ final class RecentsStore {
 
     func search(tokens: [String], limit: Int = 200,
                 isCancelled: (() -> Bool)? = nil) -> [RecentFileRecord] {
+        cacheLock.lock()
+        if hasCachedSearch && tokens == lastSearchTokens {
+            let cached = Array(lastSearchMatches.prefix(limit))
+            cacheLock.unlock()
+            return cached
+        }
+        let generation = cacheGeneration
+        cacheLock.unlock()
         let cutoff = Date(timeIntervalSinceNow: -windowDays * 86_400)
         let freshCutoff = Date(timeIntervalSinceNow: -freshLaneHours * 3_600)
         var visited = 0
@@ -101,7 +114,7 @@ final class RecentsStore {
             }
         }
 
-        let results = out
+        let matches = out
             .sorted {
                 if $0.matchQuality != $1.matchQuality {
                     return $0.matchQuality < $1.matchQuality
@@ -109,11 +122,26 @@ final class RecentsStore {
                 if $0.recency != $1.recency { return $0.recency > $1.recency }
                 return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }
-            .prefix(limit)
             .map { $0 }
+        cacheLock.lock()
+        if generation == cacheGeneration {
+            lastSearchTokens = tokens
+            lastSearchMatches = matches
+            hasCachedSearch = true
+        }
+        cacheLock.unlock()
+        let results = Array(matches.prefix(limit))
 
         Log.write("RecentsStore: scanned=\(visited) roots=\(scanRoots.count) matched=\(out.count) returned=\(results.count) tokens=\(tokens)")
         return results
+    }
+
+    func refresh() {
+        cacheLock.lock()
+        cacheGeneration &+= 1
+        hasCachedSearch = false
+        lastSearchMatches = []
+        cacheLock.unlock()
     }
 
     private func record(for url: URL, tokens: [String], cutoff: Date) -> RecentFileRecord? {
