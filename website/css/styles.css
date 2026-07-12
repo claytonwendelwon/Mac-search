@@ -978,19 +978,6 @@ body.menu-open { overflow: hidden; }
   margin: 12px auto 24px;
 }
 
-/* ── Promo ribbon ── */
-
-.promo-ribbon {
-  background: var(--apple-bg-alt);
-  text-align: center;
-  padding: 14px 22px;
-  font-size: 14px;
-  color: var(--apple-text);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.promo-ribbon a { color: var(--apple-blue); }
-
 /* ── Bento / explore ── */
 
 .explore-section {
