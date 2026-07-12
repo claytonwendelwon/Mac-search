@@ -76,7 +76,6 @@ struct SearchField: NSViewRepresentable {
                 window.makeKey()
                 window.makeFirstResponder(field)
                 if let editor = field.currentEditor() as? NSTextView {
-                    // Visible, blinking insertion-point caret.
                     editor.insertionPointColor = .controlAccentColor
                     editor.selectedRange = NSRange(location: field.stringValue.count, length: 0)
                 }

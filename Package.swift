@@ -11,11 +11,19 @@ let package = Package(
             name: "Beacon",
             path: "Sources/Beacon",
             swiftSettings: [
-                .swiftLanguageMode(.v5)
+                .unsafeFlags(["-swift-version", "5"])
             ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
                 .linkedFramework("EventKit")
+            ]
+        ),
+        .testTarget(
+            name: "BeaconTests",
+            dependencies: ["Beacon"],
+            path: "Tests/BeaconTests",
+            swiftSettings: [
+                .unsafeFlags(["-swift-version", "5"])
             ]
         )
     ]

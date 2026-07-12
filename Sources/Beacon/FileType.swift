@@ -191,30 +191,16 @@ enum FileType: String, CaseIterable, Identifiable {
                 "org.openxmlformats.presentationml.template",
                 "org.openxmlformats.presentationml.slideshow"
             ]
-        case .mail:
-            return [] // handled by MailStore, not the file index
-        case .gmail:
-            return [] // provider-scoped MailStore search
-        case .calendar:
-            return [] // handled by CalendarStore
-        case .googleDrive, .oneDrive, .dropbox, .iCloudDrive:
-            return [] // path-scoped below; all indexed file types are eligible
+        case .mail, .gmail, .calendar,
+             .googleDrive, .oneDrive, .dropbox, .iCloudDrive,
+             .messages, .notes, .clipboard, .history, .settings:
+            return []
         case .pdfs:
             return ["com.adobe.pdf"]
         case .audio:
             return ["public.audio"]
         case .folders:
             return ["public.folder"]
-        case .messages:
-            return [] // handled by MessageStore, not the file index
-        case .notes:
-            return [] // handled by NotesStore, not the file index
-        case .clipboard:
-            return [] // handled by ClipboardStore, not the file index
-        case .history:
-            return [] // handled by BrowserHistoryStore, not the file index
-        case .settings:
-            return [] // handled by SettingsStore, not the file index
         }
     }
 

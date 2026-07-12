@@ -21,7 +21,6 @@ enum BeaconMenuIcon {
         let center = NSPoint(x: size * 0.48, y: size * 0.53)
         let ringRadius = size * 0.24
 
-        // Search lens ring.
         let ringRect = NSRect(x: center.x - ringRadius,
                               y: center.y - ringRadius,
                               width: ringRadius * 2,
@@ -30,7 +29,6 @@ enum BeaconMenuIcon {
         ring.lineWidth = 1.8
         ring.stroke()
 
-        // Short search handle.
         let handle = NSBezierPath()
         handle.lineWidth = 2.0
         handle.lineCapStyle = .round
@@ -39,7 +37,6 @@ enum BeaconMenuIcon {
         handle.line(to: NSPoint(x: size * 0.79, y: size * 0.20))
         handle.stroke()
 
-        // Beacon dot.
         let dotRadius = size * 0.095
         NSBezierPath(ovalIn: NSRect(x: center.x - dotRadius,
                                     y: center.y - dotRadius,

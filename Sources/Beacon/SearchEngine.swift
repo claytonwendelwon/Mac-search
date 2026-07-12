@@ -59,16 +59,13 @@ struct SearchResult: Identifiable, Hashable {
             max(dateAdded ?? .distantPast, modified ?? .distantPast))
     }
 
-    // Message-only fields.
     let messageBody: String?
-    let messageHandle: String?  // phone/email used to open the conversation
+    let messageHandle: String?
     let messageFromMe: Bool
     let messageChatGUID: String?
     let messageRowID: Int64?
 
-    // Note-only field: AppleScript id used to navigate to the exact note.
     let noteID: String?
-    // Mail-only RFC Message-ID used by Mail's exact-message URL scheme.
     let mailMessageID: String?
 
     var url: URL { URL(fileURLWithPath: path) }
@@ -369,14 +366,15 @@ final class SearchEngine: ObservableObject {
     @Published var selectedType: FileType = .all {
         didSet {
             guard oldValue != selectedType else { return }
-            // Switching filters always starts fresh: drop the previous list and
-            // any in-flight work so results from the old filter can never bleed
-            // into the new one.
+            nameQuery.stop()
+            contentQuery.stop()
+            contentQueryActive = false
+            activeIndexToken = 0
             fileResults = []
+            scannedAppResults = []
             messageResults = []
             noteResults = []
             mailResults = []
-            calendarResults = []
             calendarResults = []
             results = []
             needsFullDiskAccess = false
@@ -422,6 +420,7 @@ final class SearchEngine: ObservableObject {
     private let messageQueue = DispatchQueue(label: "com.beacon.messages", qos: .userInitiated)
     private let calendarQueue = DispatchQueue(label: "com.beacon.calendar", qos: .userInitiated)
     private let recentsQueue = DispatchQueue(label: "com.beacon.recents", qos: .userInitiated)
+    private let appQueue = DispatchQueue(label: "com.beacon.apps", qos: .userInitiated)
     /// Monotonic generation bumped on every scheduled search (query OR filter
     /// change). Async work captures the value and only applies its results if
     /// the token still matches - so stale/superseded searches are dropped.
@@ -432,20 +431,13 @@ final class SearchEngine: ObservableObject {
     /// superseded. Without this, slow scans (a rare word across a huge
     /// Messages history) pile up on the serial queue, every publish gets
     /// dropped as stale, and the UI wedges on old results until relaunch.
-    private final class Generation: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value = 0
-        func set(_ newValue: Int) { lock.lock(); value = newValue; lock.unlock() }
-        var current: Int { lock.lock(); defer { lock.unlock() }; return value }
-    }
-    private let liveToken = Generation()
+    private let liveToken = SearchGeneration()
 
     /// Cancellation probe for a store scan started under `token`.
     private func cancellation(for token: Int) -> () -> Bool {
-        { [liveToken] in liveToken.current != token }
+        { [liveToken] in !liveToken.isCurrent(token) }
     }
 
-    // Read generous caps so rarely-used items aren't dropped before ranking.
     private let nameReadCap = 500
     private let contentReadCap = 250
     private let pageSize = 80
@@ -455,7 +447,6 @@ final class SearchEngine: ObservableObject {
     /// push a fresh download out of the readable window.
     private let recentsReadCap = 1500
 
-    // Per-source buckets, merged in `.all` mode by `publish()`.
     private var fileResults: [SearchResult] = []
     private var scannedAppResults: [SearchResult] = []
     private var messageResults: [SearchResult] = []
@@ -463,7 +454,6 @@ final class SearchEngine: ObservableObject {
     private var mailResults: [SearchResult] = []
     private var calendarResults: [SearchResult] = []
 
-    // Caps for the blended "All" view so each source stays reachable.
     private let allFileCap = 44
     private let allMessageCap = 6
     private let allNoteCap = 6
@@ -483,6 +473,7 @@ final class SearchEngine: ObservableObject {
 
     private var pendingSearch: DispatchWorkItem?
     private var currentTokens: [String] = []
+    private var activeIndexToken = 0
     private var allIncludedTypes = Set(FileType.allCases.filter(\.includedInAll))
 
     /// Content search (text inside files) only kicks in once the query is long
@@ -532,8 +523,9 @@ final class SearchEngine: ObservableObject {
     // MARK: - Search lifecycle
 
     private func publishPage(_ rows: [SearchResult]) {
-        canLoadMore = rows.count > pageLimit
-        results = Array(rows.prefix(pageLimit))
+        let page = PageWindow.slice(rows, limit: pageLimit)
+        canLoadMore = page.hasMore
+        results = page.rows
         isSearching = false
         isLoadingMore = false
     }
@@ -555,6 +547,7 @@ final class SearchEngine: ObservableObject {
             nameQuery.stop()
             contentQuery.stop()
             contentQueryActive = false
+            activeIndexToken = 0
             currentTokens = []
             fileResults = []
             scannedAppResults = []
@@ -610,13 +603,11 @@ final class SearchEngine: ObservableObject {
         pageLimit += pageSize
         isLoadingMore = true
         canLoadMore = false
-        searchToken &+= 1
-        liveToken.set(searchToken)
         let token = searchToken
         let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if !trimmed.isEmpty, selectedType.usesFileIndex {
-            queryUpdated(Notification(name: .NSMetadataQueryDidUpdate))
+            publishIndexResults()
             if selectedType == .all,
                allIncludedTypes.contains(.messages)
                 || allIncludedTypes.contains(.notes)
@@ -650,7 +641,7 @@ final class SearchEngine: ObservableObject {
     }
 
     private func runSearch(term: String, token: Int) {
-        guard token == searchToken else { return } // superseded before we ran
+        guard token == searchToken else { return }
         isSearching = true
         currentTokens = SearchText.tokens(term)
 
@@ -708,6 +699,9 @@ final class SearchEngine: ObservableObject {
         let pathPrefixes = selectedType.pathPrefixes
 
         nameQuery.stop()
+        contentQuery.stop()
+        activeIndexToken = token
+        contentQueryActive = term.count >= contentMinQueryLength
         nameQuery.searchScopes = [NSMetadataQueryLocalComputerScope]
         nameQuery.sortDescriptors = Self.defaultSortDescriptors
         nameQuery.predicate = namePredicate(tokens: currentTokens, trees: trees,
@@ -715,8 +709,6 @@ final class SearchEngine: ObservableObject {
                                             pathPrefixes: pathPrefixes)
         nameQuery.start()
 
-        contentQuery.stop()
-        contentQueryActive = term.count >= contentMinQueryLength
         if contentQueryActive {
             contentQuery.searchScopes = [NSMetadataQueryLocalComputerScope]
             contentQuery.sortDescriptors = Self.defaultSortDescriptors
@@ -751,11 +743,15 @@ final class SearchEngine: ObservableObject {
     /// In All mode, supplement Spotlight with a direct app-folder scan so
     /// third-party apps show up even when Spotlight's app metadata misses them.
     private func gatherAppsForAll(tokens: [String], token: Int) {
-        recentsQueue.async { [weak self] in
+        let limit = pagedAllFileCap + 1
+        appQueue.async { [weak self] in
             guard let self else { return }
-            let mapped = self.appStore.search(tokens: tokens, limit: 12,
-                                              isCancelled: self.cancellation(for: token))
-                .map { SearchResult(app: $0) }
+            guard let rows = self.appStore.search(
+                tokens: tokens,
+                limit: limit,
+                isCancelled: self.cancellation(for: token)
+            ) else { return }
+            let mapped = rows.map { SearchResult(app: $0) }
 
             DispatchQueue.main.async {
                 guard token == self.searchToken, self.selectedType == .all else { return }
@@ -889,13 +885,7 @@ final class SearchEngine: ObservableObject {
         for row in scannedAppResults { byID[row.id] = row }
         return byID.values
             .map { (result: $0, score: score($0)) }
-            .sorted { a, b in
-                if a.score != b.score { return a.score < b.score }
-                let da = a.result.lastUsed ?? a.result.modified ?? .distantPast
-                let db = b.result.lastUsed ?? b.result.modified ?? .distantPast
-                if da != db { return da > db }
-                return a.result.name.localizedCaseInsensitiveCompare(b.result.name) == .orderedAscending
-            }
+            .sorted(by: rankedResultPrecedes)
             .map(\.result)
     }
 
@@ -1156,10 +1146,13 @@ final class SearchEngine: ObservableObject {
         needsFullDiskAccess = false
         let limit = pageLimit + 1
 
-        recentsQueue.async { [weak self] in
+        appQueue.async { [weak self] in
             guard let self else { return }
-            let rows = self.appStore.search(tokens: tokens, limit: limit,
-                                            isCancelled: self.cancellation(for: token))
+            guard let rows = self.appStore.search(
+                tokens: tokens,
+                limit: limit,
+                isCancelled: self.cancellation(for: token)
+            ) else { return }
             let mapped = rows.map { SearchResult(app: $0) }
 
             DispatchQueue.main.async {
@@ -1222,6 +1215,9 @@ final class SearchEngine: ObservableObject {
     /// publish - without waiting for the user to retype.
     func refreshForPanelShow() {
         recentsStore.refresh()
+        if selectedType.isApps || selectedType == .all {
+            appStore.refresh()
+        }
         if selectedType.isCalendar {
             calendarStore.refresh()
             calendarPermission = calendarStore.permissionState
@@ -1313,10 +1309,17 @@ final class SearchEngine: ObservableObject {
     // MARK: - Results
 
     @objc private func queryUpdated(_ note: Notification) {
+        guard let query = note.object as? NSMetadataQuery,
+              query === nameQuery || query === contentQuery else { return }
+        publishIndexResults()
+    }
+
+    private func publishIndexResults() {
         // Ignore late file-index notifications while a database-backed filter
         // (Messages/Notes/Clipboard/History) is active, so they can't overwrite
         // that filter's results.
-        guard selectedType.usesFileIndex else { return }
+        guard selectedType.usesFileIndex,
+              activeIndexToken == searchToken else { return }
 
         var merged: [String: SearchResult] = [:]
         let wanted = selectedType == .all ? pagedAllFileCap + 1 : pageLimit + 1
@@ -1332,13 +1335,7 @@ final class SearchEngine: ObservableObject {
         // Score once per result (folding is not free), then sort.
         fileResults = merged.values
             .map { (result: $0, score: score($0)) }
-            .sorted { a, b in
-                if a.score != b.score { return a.score < b.score }
-                let da = a.result.lastUsed ?? a.result.modified ?? .distantPast
-                let db = b.result.lastUsed ?? b.result.modified ?? .distantPast
-                if da != db { return da > db }
-                return a.result.name.localizedCaseInsensitiveCompare(b.result.name) == .orderedAscending
-            }
+            .sorted(by: rankedResultPrecedes)
             .prefix(wanted)
             .map(\.result)
         publish()
@@ -1454,7 +1451,9 @@ final class SearchEngine: ObservableObject {
         let stem = (r.name as NSString).deletingPathExtension.searchFolded
         let query = currentTokens.joined(separator: " ")
         var base: Int
-        if r.matchKind == .content {
+        if r.isApp {
+            base = (appRank(for: r)?.matchTier ?? 5) * 100
+        } else if r.matchKind == .content {
             base = 500
         } else if name == query || stem == query {
             base = 0
@@ -1473,5 +1472,28 @@ final class SearchEngine: ObservableObject {
         if r.isFolder { base -= 10 }                  // nudge folders up within their tier
         if r.path.hasPrefix(homePath) { base -= 30 }  // prefer the user's own files
         return base
+    }
+
+    private func appRank(for result: SearchResult) -> AppSearchRank? {
+        AppRanking.rank(name: result.name, path: result.path, tokens: currentTokens)
+    }
+
+    private func rankedResultPrecedes(
+        _ lhs: (result: SearchResult, score: Int),
+        _ rhs: (result: SearchResult, score: Int)
+    ) -> Bool {
+        if lhs.result.isApp, rhs.result.isApp {
+            let leftRank = appRank(for: lhs.result)
+            let rightRank = appRank(for: rhs.result)
+            if leftRank != rightRank {
+                if let leftRank, let rightRank { return leftRank < rightRank }
+                return leftRank != nil
+            }
+        }
+        if lhs.score != rhs.score { return lhs.score < rhs.score }
+        let leftDate = lhs.result.lastUsed ?? lhs.result.modified ?? .distantPast
+        let rightDate = rhs.result.lastUsed ?? rhs.result.modified ?? .distantPast
+        if leftDate != rightDate { return leftDate > rightDate }
+        return lhs.result.name.localizedStandardCompare(rhs.result.name) == .orderedAscending
     }
 }
