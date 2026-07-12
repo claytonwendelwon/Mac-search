@@ -134,6 +134,43 @@ protocol CommandTextFieldHandler: AnyObject {
 /// NSTextField that intercepts Command-key shortcuts before normal editing.
 final class CommandTextField: NSTextField {
     weak var commandHandler: CommandTextFieldHandler?
+    private var commandMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let commandMonitor {
+            NSEvent.removeMonitor(commandMonitor)
+            self.commandMonitor = nil
+        }
+        guard window != nil else { return }
+        commandMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            guard let self,
+                  let editor = currentEditor(),
+                  window?.firstResponder === editor,
+                  event.modifierFlags.contains(.command),
+                  let chars = event.charactersIgnoringModifiers,
+                  commandHandler?.handleCommandKey(chars) == true else {
+                return event
+            }
+            return nil
+        }
+    }
+
+    deinit {
+        if let commandMonitor {
+            NSEvent.removeMonitor(commandMonitor)
+        }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command),
+           let chars = event.charactersIgnoringModifiers,
+           commandHandler?.handleCommandKey(chars) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command),

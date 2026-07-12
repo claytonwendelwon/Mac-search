@@ -15,6 +15,7 @@ struct SearchView: View {
     @State private var showAddFilters = false
     @State private var activePreview: ActivePreview?
     @State private var isLoadingPreview = false
+    @State private var copiedResultID: String?
     @Environment(\.colorScheme) private var colorScheme
 
     /// One-time onboarding hint (the global hotkey) shown until dismissed.
@@ -160,7 +161,7 @@ struct SearchView: View {
                     onSubmit: { openSelected() },
                     onReveal: { revealSelected() },
                     onPreview: { previewSelected() },
-                    onCopy: { copySelectedPath() },
+                    onCopy: { copySelectedItem() },
                     onCancel: {
                         if filterLayout.isEditing {
                             finishEditing()
@@ -1248,7 +1249,7 @@ struct SearchView: View {
                     hint("return", "Open")
                     hint("⌘return", "Reveal")
                     hint("⌘Y", "Preview")
-                    hint("⌘C", "Copy path")
+                    hint("⌘C", copiedResultID == selectedResult?.id ? "Copied" : "Copy file")
                 }
             }
             Spacer()
@@ -1482,21 +1483,41 @@ struct SearchView: View {
         QuickLookController.shared.preview(result.url)
     }
 
-    private func copySelectedPath() {
+    private func copySelectedItem() {
         guard let result = selectedResult else { return }
         if result.source == .clipboard {
             ClipboardStore.shared.copyToPasteboard(result.messageBody ?? result.name)
+            showCopyFeedback(for: result.id)
             return
         }
         let pb = NSPasteboard.general
         pb.clearContents()
-        let value: String
-        switch result.source {
-        case .file: value = result.path
-        case .history, .settings: value = result.path   // URL/deep link
-        default: value = result.messageBody ?? ""
+        let copied: Bool
+        if result.source == .file {
+            let item = NSPasteboardItem()
+            item.setString(result.url.absoluteString, forType: .fileURL)
+            item.setString(result.path, forType: .string)
+            copied = pb.writeObjects([item])
+        } else {
+            let value: String
+            switch result.source {
+            case .history, .settings: value = result.path
+            default: value = result.messageBody ?? ""
+            }
+            copied = pb.setString(value, forType: .string)
         }
-        pb.setString(value, forType: .string)
+        if copied {
+            showCopyFeedback(for: result.id)
+        }
+    }
+
+    private func showCopyFeedback(for resultID: String) {
+        copiedResultID = resultID
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            if copiedResultID == resultID {
+                copiedResultID = nil
+            }
+        }
     }
 }
 
