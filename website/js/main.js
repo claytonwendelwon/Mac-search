@@ -36,16 +36,75 @@
   document.querySelectorAll('[data-tabs]').forEach(function (root) {
     var buttons = root.querySelectorAll('[data-tab-button]');
     var panels = root.querySelectorAll('[data-tab-panel]');
+    var tabList = root.querySelector('.tab-list');
 
-    buttons.forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var id = btn.getAttribute('data-tab-button');
-        buttons.forEach(function (b) { b.classList.toggle('active', b === btn); });
-        panels.forEach(function (p) {
-          p.classList.toggle('active', p.getAttribute('data-tab-panel') === id);
+    function activateTab(id, options) {
+      options = options || {};
+      var activeButton = Array.from(buttons).find(function (button) {
+        return button.getAttribute('data-tab-button') === id;
+      });
+      if (!activeButton) return false;
+
+      var activePanel;
+      buttons.forEach(function (button) {
+        var isActive = button === activeButton;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-selected', String(isActive));
+        button.tabIndex = isActive ? 0 : -1;
+      });
+      panels.forEach(function (panel) {
+        var isActive = panel.getAttribute('data-tab-panel') === id;
+        panel.classList.toggle('active', isActive);
+        panel.hidden = !isActive;
+        if (isActive) activePanel = panel;
+      });
+
+      if (tabList) {
+        var left = activeButton.offsetLeft -
+          (tabList.clientWidth - activeButton.offsetWidth) / 2;
+        tabList.scrollTo({
+          left: Math.max(0, left),
+          behavior: options.smooth ? 'smooth' : 'auto'
+        });
+      }
+
+      if (options.updateHash) {
+        var hash = id === 'all' ? '#features' : '#' + id;
+        window.history.replaceState(null, '', hash);
+      }
+
+      if (options.scrollToPanel && activePanel) {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            activePanel.scrollIntoView({ block: 'start', behavior: 'auto' });
+          });
+        });
+      }
+      return true;
+    }
+
+    function activateFromHash(scrollToPanel) {
+      var id = window.location.hash.slice(1);
+      if (!id || id === 'features') {
+        activateTab('all');
+        return;
+      }
+      activateTab(id, { scrollToPanel: scrollToPanel });
+    }
+
+    buttons.forEach(function (button) {
+      button.addEventListener('click', function () {
+        activateTab(button.getAttribute('data-tab-button'), {
+          smooth: true,
+          updateHash: true
         });
       });
     });
+
+    window.addEventListener('hashchange', function () {
+      activateFromHash(true);
+    });
+    activateFromHash(Boolean(window.location.hash));
   });
 
   // Subnav active link on scroll
@@ -61,7 +120,7 @@
       var scrollY = window.scrollY + 120;
       var current = sections[0];
       sections.forEach(function (section) {
-        if (section.offsetTop <= scrollY) current = section;
+        if (section.offsetParent !== null && section.offsetTop <= scrollY) current = section;
       });
       links.forEach(function (link) {
         link.classList.toggle('active', link.getAttribute('href') === '#' + current.id);
