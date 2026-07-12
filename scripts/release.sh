@@ -212,6 +212,12 @@ history**. (Chrome, Brave, Edge, and Arc history work without it.)
   exact note.
 
 ## What's new in $VERSION
+- **More reliable app search.** Beacon now handles stale app results better,
+  improves app ranking, and keeps downloaded/third-party apps easier to find.
+- **Search reliability tests.** New automated tests cover app matching, ranking,
+  and fallback search behavior so launcher regressions are easier to catch.
+- **Sharper Beacon branding.** The app icon, menu-bar mark, favicon, and website
+  navigation have been refreshed for a cleaner product presentation.
 - **Connected-source search.** Beacon now includes first-pass local Mail and
   Calendar sources, with permission-aware previews and results alongside your
   existing files, messages, notes, history, and settings.
