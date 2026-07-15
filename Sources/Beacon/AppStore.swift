@@ -5,8 +5,10 @@ struct AppRecord {
     let name: String
     let bundleIdentifier: String?
     let modified: Date?
+    let lastUsed: Date?
     let foldedName: String
     let isBackgroundOnly: Bool
+    let category: String
 }
 
 struct AppSearchRank: Comparable {
@@ -107,6 +109,18 @@ final class AppStore {
                 isCancelled: (() -> Bool)? = nil) -> [AppRecord]? {
         guard let apps = loadApps(isCancelled: isCancelled) else { return nil }
 
+        if tokens.isEmpty {
+            return apps
+                .sorted {
+                    let left = $0.lastUsed ?? $0.modified ?? .distantPast
+                    let right = $1.lastUsed ?? $1.modified ?? .distantPast
+                    if left != right { return left > right }
+                    return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                }
+                .prefix(limit)
+                .map { $0 }
+        }
+
         return apps
             .compactMap { app -> (AppRecord, AppSearchRank)? in
                 guard let rank = AppRanking.rank(
@@ -145,7 +159,8 @@ final class AppStore {
             guard isCancelled?() != true else { return nil }
             guard let enumerator = fm.enumerator(
                 at: root,
-                includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+                includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey,
+                                             .contentAccessDateKey],
                 options: [.skipsHiddenFiles],
                 errorHandler: { _, _ in true }
             ) else { continue }
@@ -188,14 +203,36 @@ final class AppStore {
         let bundleName = info?["CFBundleName"] as? String
         let bundleIdentifier = info?["CFBundleIdentifier"] as? String
         let isBackgroundOnly = info?["LSBackgroundOnly"] as? Bool ?? false
+        let rawCategory = info?["LSApplicationCategoryType"] as? String ?? ""
         let name = displayName ?? bundleName ?? url.deletingPathExtension().lastPathComponent
-        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey,
+                                                       .contentAccessDateKey])
         return AppRecord(path: url.path,
                          name: name,
                          bundleIdentifier: bundleIdentifier,
-                         modified: modified,
+                         modified: values?.contentModificationDate,
+                         lastUsed: values?.contentAccessDate,
                          foldedName: name.searchFolded,
-                         isBackgroundOnly: isBackgroundOnly)
+                         isBackgroundOnly: isBackgroundOnly,
+                         category: Self.category(for: rawCategory))
+    }
+
+    private static func category(for rawCategory: String) -> String {
+        let value = rawCategory.searchFolded
+        if value.contains("developer") { return "development" }
+        if value.contains("graphics") || value.contains("photography")
+            || value.contains("video") || value.contains("music") {
+            return "creative"
+        }
+        if value.contains("social") || value.contains("communication") {
+            return "communication"
+        }
+        if value.contains("utility") { return "utilities" }
+        if value.contains("productivity") || value.contains("business")
+            || value.contains("finance") || value.contains("education") {
+            return "productivity"
+        }
+        return ""
     }
 
     private func roots() -> [URL] {

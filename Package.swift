@@ -15,7 +15,8 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
-                .linkedFramework("EventKit")
+                .linkedFramework("EventKit"),
+                .linkedFramework("QuartzCore")
             ]
         ),
         .testTarget(

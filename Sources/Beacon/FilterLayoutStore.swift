@@ -1,7 +1,7 @@
 import Foundation
 
-/// Persists the user's visible filter order. `All` is always pinned first and
-/// cannot be hidden; removing any other filter also removes it from All.
+/// Persists the user's visible filter order. The universal Recents feed
+/// (`FileType.all` internally) is always pinned first and cannot be hidden.
 final class FilterLayoutStore: ObservableObject {
     static let shared = FilterLayoutStore()
 
@@ -10,20 +10,30 @@ final class FilterLayoutStore: ObservableObject {
 
     private let defaultsKey = "filterLayout.v1"
     private var orderBeforeDrag: [FileType]?
-    private static let defaultVisibleFilters = FileType.allCases.filter { !$0.isOptionalSource }
+    private static let defaultVisibleFilters = FileType.allCases.filter {
+        !$0.isOptionalSource && $0 != .recents
+    }
 
     private init() {
         let saved = UserDefaults.standard.stringArray(forKey: defaultsKey) ?? []
         let decoded = saved.compactMap(FileType.init(rawValue:))
-        visibleFilters = Self.normalized(decoded.isEmpty ? Self.defaultVisibleFilters : decoded)
+        let normalized = Self.normalized(
+            decoded.isEmpty ? Self.defaultVisibleFilters : decoded
+        )
+        visibleFilters = normalized
+        if saved != normalized.map(\.rawValue) {
+            UserDefaults.standard.set(normalized.map(\.rawValue), forKey: defaultsKey)
+        }
     }
 
     var hiddenFilters: [FileType] {
-        FileType.allCases.filter { !visibleFilters.contains($0) && $0 != .all }
+        FileType.allCases.filter {
+            !visibleFilters.contains($0) && $0 != .all && $0 != .recents
+        }
     }
 
     var includedInAll: Set<FileType> {
-        Set(visibleFilters.filter(\.includedInAll))
+        Set(FileType.allCases.filter(\.includedInAll))
     }
 
     func hide(_ type: FileType) {
@@ -34,7 +44,7 @@ final class FilterLayoutStore: ObservableObject {
     }
 
     func add(_ type: FileType) {
-        guard !visibleFilters.contains(type) else { return }
+        guard type != .recents, !visibleFilters.contains(type) else { return }
         cancelMove()
         visibleFilters.append(type)
         visibleFilters = Self.normalized(visibleFilters)
@@ -94,7 +104,9 @@ final class FilterLayoutStore: ObservableObject {
 
     private static func normalized(_ input: [FileType]) -> [FileType] {
         var seen = Set<FileType>()
-        let unique = input.filter { seen.insert($0).inserted && $0 != .all }
+        let unique = input.filter {
+            seen.insert($0).inserted && $0 != .all && $0 != .recents
+        }
         return [.all] + unique
     }
 }

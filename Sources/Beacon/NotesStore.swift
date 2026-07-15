@@ -10,6 +10,8 @@ struct NoteRecord {
     let body: String      // full decoded text ("" if decode failed)
     let modified: Date
     let appleScriptID: String  // x-coredata:// id used to `show` the note ("" if unknown)
+    let folderName: String
+    let accountName: String
     /// Case/diacritic-folded "title body", precomputed once at load so each
     /// keystroke filters without re-folding every note body.
     let folded: String
@@ -52,10 +54,11 @@ final class NotesStore {
 
     func search(tokens: [String], limit: Int = 80,
                 isCancelled: (() -> Bool)? = nil) -> [NoteRecord] {
-        guard state == .ready, !tokens.isEmpty else {
+        guard state == .ready else {
             Log.write("NotesStore: search skipped (state=\(state))")
             return []
         }
+        if tokens.isEmpty { return Array(cache.prefix(limit)) }
         if tokens == lastSearchTokens {
             return Array(lastSearchMatches.prefix(limit))
         }
@@ -110,10 +113,48 @@ final class NotesStore {
         let dateCol = Self.pick(cols, exact: "ZMODIFICATIONDATE1", prefix: "ZMODIFICATIONDATE") ?? "ZMODIFICATIONDATE1"
         let deletedClause = cols.contains("ZMARKEDFORDELETION") ? "AND (c.ZMARKEDFORDELETION IS NULL OR c.ZMARKEDFORDELETION = 0)" : ""
 
+        // Folder/account entities share ZICCLOUDSYNCINGOBJECT with notes. Their
+        // relationship columns have shifted between Notes schema versions, so
+        // only add each join when every column it needs is actually present.
+        let folderCol = cols.contains("ZFOLDER") ? "ZFOLDER" : nil
+        let folderTitleCol = cols.contains("ZTITLE2") ? "ZTITLE2" : nil
+        let accountCol: String?
+        if cols.contains("ZACCOUNT4"), cols.contains("ZACCOUNT3") {
+            accountCol = "ZACCOUNT3"
+        } else if cols.contains("ZACCOUNT2") {
+            accountCol = "ZACCOUNT2"
+        } else {
+            accountCol = nil
+        }
+        let accountNameCol = cols.contains("ZNAME") ? "ZNAME" : nil
+
+        let folderSelect: String
+        let folderJoin: String
+        if let folderCol, let folderTitleCol {
+            folderSelect = "COALESCE(f.\(folderTitleCol), '')"
+            folderJoin = "LEFT JOIN ZICCLOUDSYNCINGOBJECT AS f ON f.Z_PK = c.\(folderCol)"
+        } else {
+            folderSelect = "''"
+            folderJoin = ""
+        }
+
+        let accountSelect: String
+        let accountJoin: String
+        if let accountCol, let accountNameCol {
+            accountSelect = "COALESCE(a.\(accountNameCol), '')"
+            accountJoin = "LEFT JOIN ZICCLOUDSYNCINGOBJECT AS a ON a.Z_PK = c.\(accountCol)"
+        } else {
+            accountSelect = "''"
+            accountJoin = ""
+        }
+
         let sql = """
-        SELECT c.Z_PK, c.\(titleCol), c.\(snippetCol), c.\(dateCol), d.ZDATA
+        SELECT c.Z_PK, c.\(titleCol), c.\(snippetCol), c.\(dateCol), d.ZDATA,
+               \(folderSelect), \(accountSelect)
         FROM ZICNOTEDATA AS d
         JOIN ZICCLOUDSYNCINGOBJECT AS c ON c.Z_PK = d.ZNOTE
+        \(folderJoin)
+        \(accountJoin)
         WHERE d.ZDATA IS NOT NULL \(deletedClause)
         ORDER BY c.\(dateCol) DESC
         LIMIT \(loadCap);
@@ -134,6 +175,8 @@ final class NotesStore {
             let title = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
             let snippet = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
             let rawDate = sqlite3_column_double(stmt, 3)
+            let folderName = sqlite3_column_text(stmt, 5).map { String(cString: $0) } ?? ""
+            let accountName = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? ""
 
             var body = ""
             if let blob = sqlite3_column_blob(stmt, 4) {
@@ -152,7 +195,8 @@ final class NotesStore {
             let folded = (cleanTitle + " " + (body.isEmpty ? snippet : body)).searchFolded
             records.append(NoteRecord(pk: pk, title: cleanTitle, snippet: snippet,
                                       body: body, modified: Self.appleDate(rawDate),
-                                      appleScriptID: scriptID, folded: folded))
+                                      appleScriptID: scriptID, folderName: folderName,
+                                      accountName: accountName, folded: folded))
         }
 
         cache = records

@@ -12,6 +12,10 @@ struct MailRecord {
     let snippet: String
     let received: Date
     let mailboxURL: String
+    let mailboxName: String
+    let accountName: String
+    let isUnread: Bool
+    let isFlagged: Bool
 
     var senderDisplay: String {
         if !senderName.isEmpty { return senderName }
@@ -36,9 +40,13 @@ final class MailStore {
         let summaryExpression: String
         let mailboxJoin: String
         let mailboxExpression: String
+        let mailboxNameExpression: String
+        let accountNameExpression: String
         let globalDataJoin: String
         let messageIDExpression: String
         let dateExpression: String
+        let unreadExpression: String
+        let flaggedExpression: String
         let deletedClause: String
     }
 
@@ -89,8 +97,9 @@ final class MailStore {
     func search(tokens: [String], limit: Int = 80,
                 gmailOnly: Bool = false,
                 isCancelled: (() -> Bool)? = nil) -> [MailRecord] {
-        guard state == .ready, let schema, !tokens.isEmpty else { return [] }
-        if tokens == lastTokens, gmailOnly == lastSearchWasGmailOnly {
+        guard state == .ready, let schema else { return [] }
+        if tokens == lastTokens, gmailOnly == lastSearchWasGmailOnly,
+           lastMatches.count >= limit {
             return Array(lastMatches.prefix(limit))
         }
 
@@ -108,6 +117,9 @@ final class MailStore {
             "(" + searchable.map { "\($0) LIKE ? ESCAPE '\\' COLLATE NOCASE" }
                 .joined(separator: " OR ") + ")"
         }
+        let searchClause = tokenClauses.isEmpty
+            ? "1 = 1"
+            : tokenClauses.joined(separator: " AND ")
         let scanLimit = max(500, limit * 10)
         let sql = """
         SELECT m.ROWID,
@@ -117,14 +129,18 @@ final class MailStore {
                \(schema.senderNameExpression),
                \(schema.summaryExpression),
                \(schema.dateExpression),
-               \(schema.mailboxExpression)
+               \(schema.mailboxExpression),
+               \(schema.mailboxNameExpression),
+               \(schema.accountNameExpression),
+               \(schema.unreadExpression),
+               \(schema.flaggedExpression)
         FROM messages AS m
         \(schema.subjectJoin)
         \(schema.senderJoin)
         \(schema.summaryJoin)
         \(schema.mailboxJoin)
         \(schema.globalDataJoin)
-        WHERE \(tokenClauses.joined(separator: " AND "))
+        WHERE \(searchClause)
               \(schema.deletedClause)
               \(gmailOnly ? "AND LOWER(\(schema.mailboxExpression)) LIKE '%gmail%'" : "")
         ORDER BY \(schema.dateExpression) DESC
@@ -152,6 +168,7 @@ final class MailStore {
         while sqlite3_step(stmt) == SQLITE_ROW {
             rowIndex += 1
             if rowIndex & 0xFF == 0, isCancelled?() == true { return [] }
+            let mailboxURL = Self.text(stmt, 7)
             let record = MailRecord(
                 rowid: sqlite3_column_int64(stmt, 0),
                 messageID: Self.text(stmt, 1),
@@ -160,7 +177,11 @@ final class MailStore {
                 senderName: Self.text(stmt, 4),
                 snippet: Self.text(stmt, 5),
                 received: Self.mailDate(sqlite3_column_double(stmt, 6)),
-                mailboxURL: Self.text(stmt, 7)
+                mailboxURL: mailboxURL,
+                mailboxName: Self.mailboxName(Self.text(stmt, 8), mailboxURL: mailboxURL),
+                accountName: Self.accountName(Self.text(stmt, 9), mailboxURL: mailboxURL),
+                isUnread: sqlite3_column_int(stmt, 10) != 0,
+                isFlagged: sqlite3_column_int(stmt, 11) != 0
             )
             let folded = [
                 record.subject,
@@ -168,7 +189,9 @@ final class MailStore {
                 record.senderName,
                 record.snippet
             ].joined(separator: " ").searchFolded
-            if let quality = SearchText.matchQuality(folded, tokens: tokens) {
+            if tokens.isEmpty {
+                scored.append((record, .exactPhrase))
+            } else if let quality = SearchText.matchQuality(folded, tokens: tokens) {
                 scored.append((record, quality))
             }
         }
@@ -224,6 +247,7 @@ final class MailStore {
         let hasAddresses = tables.contains("addresses") && messages.contains("sender")
         let hasSummaries = tables.contains("summaries") && messages.contains("summary")
         let hasMailboxes = tables.contains("mailboxes") && messages.contains("mailbox")
+        let mailboxColumns = Self.columns(db, table: "mailboxes")
         let globalColumns = Self.columns(db, table: "message_global_data")
         let hasGlobalData = tables.contains("message_global_data")
             && messages.contains("global_message_id")
@@ -232,6 +256,43 @@ final class MailStore {
         let dateColumn = messages.contains("date_received")
             ? "m.date_received"
             : messages.contains("date_sent") ? "m.date_sent" : "0"
+        let mailboxURLExpression = hasMailboxes && mailboxColumns.contains("url")
+            ? "COALESCE(mb.url, '')"
+            : "''"
+        let mailboxNameExpression = Self.firstExpression(
+            columns: mailboxColumns,
+            alias: "mb",
+            candidates: ["display_name", "mailbox_name", "name"],
+            fallback: mailboxURLExpression
+        )
+        let accountNameExpression = Self.firstExpression(
+            columns: mailboxColumns,
+            alias: "mb",
+            candidates: ["account_name", "account", "account_identifier"],
+            fallback: "''"
+        )
+        let unreadExpression: String
+        if messages.contains("read") {
+            unreadExpression = "CASE WHEN COALESCE(m.read, 0) = 0 THEN 1 ELSE 0 END"
+        } else if messages.contains("is_read") {
+            unreadExpression = "CASE WHEN COALESCE(m.is_read, 0) = 0 THEN 1 ELSE 0 END"
+        } else if messages.contains("unread") {
+            unreadExpression = "CASE WHEN COALESCE(m.unread, 0) <> 0 THEN 1 ELSE 0 END"
+        } else if messages.contains("flags") {
+            unreadExpression = "CASE WHEN (COALESCE(m.flags, 0) & 1) = 0 THEN 1 ELSE 0 END"
+        } else {
+            unreadExpression = "0"
+        }
+        let flaggedExpression: String
+        if messages.contains("flagged") {
+            flaggedExpression = "CASE WHEN COALESCE(m.flagged, 0) <> 0 THEN 1 ELSE 0 END"
+        } else if messages.contains("is_flagged") {
+            flaggedExpression = "CASE WHEN COALESCE(m.is_flagged, 0) <> 0 THEN 1 ELSE 0 END"
+        } else if messages.contains("flags") {
+            flaggedExpression = "CASE WHEN (COALESCE(m.flags, 0) & 16) <> 0 THEN 1 ELSE 0 END"
+        } else {
+            flaggedExpression = "0"
+        }
 
         return Schema(
             databasePath: databasePath,
@@ -245,14 +306,24 @@ final class MailStore {
                 ? "COALESCE(sm.summary, '')"
                 : messages.contains("snippet") ? "COALESCE(m.snippet, '')" : "''",
             mailboxJoin: hasMailboxes ? "LEFT JOIN mailboxes AS mb ON m.mailbox = mb.ROWID" : "",
-            mailboxExpression: hasMailboxes ? "COALESCE(mb.url, '')" : "''",
+            mailboxExpression: mailboxURLExpression,
+            mailboxNameExpression: mailboxNameExpression,
+            accountNameExpression: accountNameExpression,
             globalDataJoin: hasGlobalData
                 ? "LEFT JOIN message_global_data AS mgd ON m.global_message_id = mgd.ROWID"
                 : "",
             messageIDExpression: hasGlobalData ? "COALESCE(mgd.message_id_header, '')" : "''",
             dateExpression: dateColumn,
+            unreadExpression: unreadExpression,
+            flaggedExpression: flaggedExpression,
             deletedClause: messages.contains("deleted") ? "AND COALESCE(m.deleted, 0) = 0" : ""
         )
+    }
+
+    private static func firstExpression(columns: Set<String>, alias: String,
+                                        candidates: [String], fallback: String) -> String {
+        guard let column = candidates.first(where: columns.contains) else { return fallback }
+        return "COALESCE(CAST(\(alias).\(column) AS TEXT), '')"
     }
 
     private static func tables(_ db: OpaquePointer) -> Set<String> {
@@ -302,6 +373,25 @@ final class MailStore {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "%", with: "\\%")
             .replacingOccurrences(of: "_", with: "\\_")
+    }
+
+    private static func mailboxName(_ value: String, mailboxURL: String) -> String {
+        if !value.isEmpty, value != mailboxURL { return value }
+        guard let components = URLComponents(string: mailboxURL) else { return value }
+        let path = components.percentEncodedPath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .last
+            .map(String.init) ?? ""
+        return path.removingPercentEncoding ?? path
+    }
+
+    private static func accountName(_ value: String, mailboxURL: String) -> String {
+        if !value.isEmpty { return value }
+        guard let components = URLComponents(string: mailboxURL) else { return "" }
+        if let user = components.user, !user.isEmpty {
+            return user.removingPercentEncoding ?? user
+        }
+        return components.host?.removingPercentEncoding ?? components.host ?? ""
     }
 
     private static func mailDate(_ raw: Double) -> Date {

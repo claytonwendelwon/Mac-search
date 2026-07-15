@@ -60,14 +60,18 @@ final class CalendarStore {
 
     func search(tokens: [String], limit: Int = 80,
                 isCancelled: (() -> Bool)? = nil) -> [CalendarRecord] {
-        guard permissionState == .granted, !tokens.isEmpty else { return [] }
-        if tokens == lastTokens { return Array(lastMatches.prefix(limit)) }
+        guard permissionState == .granted else { return [] }
+        if tokens == lastTokens, !lastMatches.isEmpty {
+            return Array(lastMatches.prefix(limit))
+        }
         let records = loadEvents()
 
         var matches: [(CalendarRecord, SearchText.MatchQuality)] = []
         for (index, record) in records.enumerated() {
             if index & 0xFF == 0, isCancelled?() == true { return [] }
-            if let quality = SearchText.matchQuality(record.folded, tokens: tokens) {
+            if tokens.isEmpty {
+                matches.append((record, .exactPhrase))
+            } else if let quality = SearchText.matchQuality(record.folded, tokens: tokens) {
                 matches.append((record, quality))
             }
         }

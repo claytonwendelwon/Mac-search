@@ -11,6 +11,7 @@ struct RecentFileRecord {
     let dateAdded: Date?
     let isFolder: Bool
     let isApp: Bool
+    let contentTypes: [String]
     let recency: Date
     let matchQuality: SearchText.MatchQuality
 }
@@ -30,6 +31,7 @@ final class RecentsStore {
     private var hasCachedSearch = false
     private let cacheLock = NSLock()
     private var cacheGeneration = 0
+    private var lastScanAt = Date.distantPast
 
     private let resourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
@@ -128,6 +130,7 @@ final class RecentsStore {
             lastSearchTokens = tokens
             lastSearchMatches = matches
             hasCachedSearch = true
+            lastScanAt = Date()
         }
         cacheLock.unlock()
         let results = Array(matches.prefix(limit))
@@ -138,6 +141,10 @@ final class RecentsStore {
 
     func refresh() {
         cacheLock.lock()
+        guard Date().timeIntervalSince(lastScanAt) >= 300 else {
+            cacheLock.unlock()
+            return
+        }
         cacheGeneration &+= 1
         hasCachedSearch = false
         lastSearchMatches = []
@@ -149,12 +156,8 @@ final class RecentsStore {
         guard !shouldSkipComponent(name) else { return nil }
 
         guard let values = try? url.resourceValues(forKeys: resourceKeys) else { return nil }
-        if values.isDirectory == true {
-            // Directories are not shown, but recursive scans can still visit
-            // their children.
-            return nil
-        }
-        guard values.isRegularFile == true else { return nil }
+        let isFolder = values.isDirectory == true
+        guard isFolder || values.isRegularFile == true else { return nil }
         guard values.isPackage != true else { return nil }
 
         let foldedName = name.searchFolded
@@ -168,15 +171,29 @@ final class RecentsStore {
         guard recency >= cutoff else { return nil }
 
         let type = values.contentType
+        let ext = url.pathExtension.lowercased()
+        var contentTypes = type.map { [$0.identifier] } ?? []
+        if FileType.photos.filenameExtensions.contains(ext) {
+            contentTypes.append("public.image")
+        }
+        if FileType.videos.filenameExtensions.contains(ext) {
+            contentTypes.append("public.movie")
+        }
+        if FileType.audio.filenameExtensions.contains(ext) {
+            contentTypes.append("public.audio")
+        }
+        if ext == "pdf" { contentTypes.append("com.adobe.pdf") }
+        if isFolder { contentTypes.append("public.folder") }
         return RecentFileRecord(
             path: url.standardizedFileURL.path,
             name: name,
-            kind: type?.localizedDescription ?? "File",
-            size: values.fileSize.map(Int64.init),
+            kind: isFolder ? "Folder" : (type?.localizedDescription ?? "File"),
+            size: isFolder ? nil : values.fileSize.map(Int64.init),
             modified: modified,
             dateAdded: added ?? created,
-            isFolder: false,
-            isApp: type?.conforms(to: .applicationBundle) == true,
+            isFolder: isFolder,
+            isApp: false,
+            contentTypes: contentTypes,
             recency: recency,
             matchQuality: matchQuality ?? .substring
         )

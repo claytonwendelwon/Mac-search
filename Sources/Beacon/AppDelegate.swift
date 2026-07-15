@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Carbon.HIToolbox
+import QuartzCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -10,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let panelWidth: CGFloat = 740
     private let panelHeight: CGFloat = 500
+    private let refinementSidebarWidth: CGFloat = 156
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.write("Launching Beacon...")
@@ -78,12 +80,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Panel
 
     private func setupPanel() {
-        let panel = SearchPanel(contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
+        let sidebarOpen = UserDefaults.standard.bool(forKey: "refinementSidebarOpen")
+        let initialWidth = panelWidth + (sidebarOpen ? refinementSidebarWidth : 0)
+        let panel = SearchPanel(
+            contentRect: NSRect(x: 0, y: 0, width: initialWidth, height: panelHeight)
+        )
         let root = SearchView(
             engine: engine,
             onClose: { [weak self] in self?.hidePanel() },
             onEditingChanged: { [weak panel] editing in
                 panel?.isMovableByWindowBackground = !editing
+            },
+            onRefinementSidebarChanged: { [weak self] open in
+                self?.setRefinementSidebarOpen(open)
             }
         )
         let hosting = NSHostingView(rootView: root)
@@ -96,6 +105,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = hosting
         panel.delegate = self
         self.panel = panel
+    }
+
+    private func setRefinementSidebarOpen(_ open: Bool) {
+        guard let panel else { return }
+        let targetWidth = panelWidth + (open ? refinementSidebarWidth : 0)
+        guard abs(panel.frame.width - targetWidth) > 1 else { return }
+        var target = panel.frame
+        target.size.width = targetWidth
+        target.origin.x += open
+            ? -refinementSidebarWidth
+            : refinementSidebarWidth
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.28
+            context.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.22, 1, 0.36, 1
+            )
+            panel.animator().setFrame(target, display: true)
+        }
     }
 
     @objc func togglePanel() {

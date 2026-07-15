@@ -9,6 +9,21 @@ struct SettingRecord {
     let keywords: String
 
     var folded: String { (title + " " + subtitle + " " + keywords).searchFolded }
+    var category: String {
+        switch id {
+        case "wifi", "network", "bluetooth": return "network"
+        case "display", "wallpaper", "appearance": return "display"
+        case "sound", "notifications": return "sound"
+        case "privacy", "full-disk-access", "passwords", "touch-id": return "privacy"
+        case "keyboard", "trackpad", "mouse": return "keyboard"
+        case "users", "login-items", "icloud": return "accounts"
+        default: return ""
+        }
+    }
+
+    var isCommonFavorite: Bool {
+        ["wifi", "bluetooth", "sound", "display", "privacy", "keyboard"].contains(id)
+    }
 }
 
 /// Searchable shortcuts into System Settings. These are intentionally not part

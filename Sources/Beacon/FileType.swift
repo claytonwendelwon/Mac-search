@@ -89,7 +89,7 @@ enum FileType: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .all: return "All"
+        case .all: return "Recents"
         case .recents: return "Recents"
         case .apps: return "Apps"
         case .photos: return "Photos"
@@ -119,7 +119,7 @@ enum FileType: String, CaseIterable, Identifiable {
     /// SF Symbol used on the filter chip.
     var symbol: String {
         switch self {
-        case .all: return "square.grid.2x2"
+        case .all: return "clock"
         case .recents: return "clock"
         case .apps: return "app.badge"
         case .photos: return "photo"
@@ -214,6 +214,28 @@ enum FileType: String, CaseIterable, Identifiable {
             return ["xls", "xlsx", "xlsm", "xlt", "xltx", "xltm", "csv"]
         case .powerPoint:
             return ["ppt", "pptx", "pptm", "pot", "potx", "potm", "pps", "ppsx", "ppsm"]
+        case .docs:
+            return [
+                "txt", "rtf", "rtfd", "md", "markdown", "pages", "numbers", "key",
+                "doc", "docx", "docm", "xls", "xlsx", "xlsm", "csv",
+                "ppt", "pptx", "pptm", "odt", "ods", "odp"
+            ]
+        case .photos:
+            return [
+                "png", "jpg", "jpeg", "heic", "heif", "gif", "tif", "tiff",
+                "bmp", "webp", "svg", "dng", "raw", "cr2", "cr3", "nef", "arw",
+                "psd", "psb", "ai", "sketch", "afphoto", "exr"
+            ]
+        case .audio:
+            return [
+                "mp3", "m4a", "aac", "wav", "aiff", "aif", "flac", "alac",
+                "ogg", "opus", "caf"
+            ]
+        case .videos:
+            return [
+                "mov", "mp4", "m4v", "avi", "mkv", "webm", "mpg", "mpeg",
+                "mts", "m2ts", "3gp", "3g2", "ogv", "dv", "vob", "qt", "hevc"
+            ]
         default:
             return []
         }

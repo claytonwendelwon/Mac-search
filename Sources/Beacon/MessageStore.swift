@@ -11,6 +11,13 @@ struct MessageRecord {
     let chatGUID: String
     let chatName: String
     let text: String
+    /// Attachment metadata is aggregated per message (using newlines as the
+    /// separator when a message has multiple attachments).
+    let attachmentUTI: String
+    let attachmentMIMEType: String
+    let attachmentFilename: String
+    /// One of: text, links, photos, videos, files, audio.
+    let contentCategory: String
     /// Case/diacritic-folded "text handle", precomputed once at load so each
     /// keystroke filters without re-folding the whole history.
     let folded: String
@@ -92,10 +99,11 @@ final class MessageStore {
     func search(tokens: [String], limit: Int = 80,
                 nameResolver: ((String) -> String?)? = nil,
                 isCancelled: (() -> Bool)? = nil) -> [MessageRecord] {
-        guard state == .ready, !tokens.isEmpty else {
+        guard state == .ready else {
             Log.write("MessageStore: search skipped (state=\(state), tokens=\(tokens))")
             return []
         }
+        if tokens.isEmpty { return Array(cache.prefix(limit)) }
         if tokens == lastSearchTokens {
             return Array(lastSearchMatches.prefix(limit))
         }
@@ -182,14 +190,58 @@ final class MessageStore {
         sqlite3_busy_timeout(db, 1500)
 
         let chatColumns = Self.columns(db, table: "chat")
+        let messageColumns = Self.columns(db, table: "message")
+        let attachmentColumns = Self.columns(db, table: "attachment")
+        let attachmentJoinColumns = Self.columns(db, table: "message_attachment_join")
         let chatNameExpression = chatColumns.contains("display_name")
             ? "COALESCE(c.display_name, '')"
             : "''"
+        let attributedBodyExpression = messageColumns.contains("attributedBody")
+            ? "m.attributedBody"
+            : "NULL"
+        let isAudioMessageExpression = messageColumns.contains("is_audio_message")
+            ? "COALESCE(m.is_audio_message, 0)"
+            : "0"
+        let canLoadAttachments = attachmentJoinColumns.contains("message_id")
+            && attachmentJoinColumns.contains("attachment_id")
+            && !attachmentColumns.isEmpty
+
+        // Correlated aggregate subqueries keep this a strict one-row-per-message
+        // query. Building each expression from PRAGMA results also lets older
+        // chat.db schemas omit attachment columns (or the join table) safely.
+        func attachmentMetadataExpression(column: String) -> String {
+            guard canLoadAttachments, attachmentColumns.contains(column) else { return "''" }
+            return """
+            COALESCE((
+                SELECT GROUP_CONCAT(COALESCE(a.\(column), ''), char(10))
+                FROM message_attachment_join AS maj
+                JOIN attachment AS a ON a.ROWID = maj.attachment_id
+                WHERE maj.message_id = m.ROWID
+            ), '')
+            """
+        }
+        let attachmentUTIExpression = attachmentMetadataExpression(column: "uti")
+        let attachmentMIMETypeExpression = attachmentMetadataExpression(column: "mime_type")
+        let attachmentFilenameExpression = attachmentMetadataExpression(column: "filename")
+        let hasAttachmentExpression = canLoadAttachments
+            ? """
+              EXISTS (
+                  SELECT 1
+                  FROM message_attachment_join AS maj
+                  WHERE maj.message_id = m.ROWID
+              )
+              """
+            : "0"
         let sql = """
         SELECT m.ROWID, m.date, m.is_from_me, COALESCE(h.id, ''),
-               m.text, m.attributedBody,
+               m.text, \(attributedBodyExpression),
                COALESCE(c.chat_identifier, ''), COALESCE(c.guid, ''),
-               \(chatNameExpression)
+               \(chatNameExpression),
+               \(attachmentUTIExpression),
+               \(attachmentMIMETypeExpression),
+               \(attachmentFilenameExpression),
+               \(hasAttachmentExpression),
+               \(isAudioMessageExpression)
         FROM message AS m
         LEFT JOIN handle AS h ON m.handle_id = h.ROWID
         LEFT JOIN chat AS c ON c.ROWID = (
@@ -224,6 +276,11 @@ final class MessageStore {
             let chatIdentifier = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? ""
             let chatGUID = sqlite3_column_text(stmt, 7).map { String(cString: $0) } ?? ""
             let chatName = sqlite3_column_text(stmt, 8).map { String(cString: $0) } ?? ""
+            let attachmentUTI = sqlite3_column_text(stmt, 9).map { String(cString: $0) } ?? ""
+            let attachmentMIMEType = sqlite3_column_text(stmt, 10).map { String(cString: $0) } ?? ""
+            let attachmentFilename = sqlite3_column_text(stmt, 11).map { String(cString: $0) } ?? ""
+            let hasAttachment = sqlite3_column_int(stmt, 12) == 1
+            let isAudioMessage = sqlite3_column_int(stmt, 13) == 1
 
             var text = sqlite3_column_text(stmt, 4).map { String(cString: $0) } ?? ""
             if !text.isEmpty {
@@ -237,6 +294,14 @@ final class MessageStore {
                 }
             }
             guard !text.isEmpty else { dropped += 1; continue }
+            let contentCategory = Self.contentCategory(
+                text: text,
+                attachmentUTI: attachmentUTI,
+                attachmentMIMEType: attachmentMIMEType,
+                attachmentFilename: attachmentFilename,
+                hasAttachment: hasAttachment,
+                isAudioMessage: isAudioMessage
+            )
 
             records.append(MessageRecord(rowid: rowid,
                                          date: Self.appleDate(rawDate),
@@ -246,6 +311,10 @@ final class MessageStore {
                                          chatGUID: chatGUID,
                                          chatName: chatName,
                                          text: text,
+                                         attachmentUTI: attachmentUTI,
+                                         attachmentMIMEType: attachmentMIMEType,
+                                         attachmentFilename: attachmentFilename,
+                                         contentCategory: contentCategory,
                                          folded: (text + " " + handle + " " + chatIdentifier
                                                   + " " + chatName).searchFolded))
         }
@@ -279,6 +348,51 @@ final class MessageStore {
     private static func appleDate(_ raw: Int64) -> Date {
         let seconds = raw > 100_000_000_000 ? Double(raw) / 1_000_000_000.0 : Double(raw)
         return Date(timeIntervalSinceReferenceDate: seconds)
+    }
+
+    private static func contentCategory(
+        text: String,
+        attachmentUTI: String,
+        attachmentMIMEType: String,
+        attachmentFilename: String,
+        hasAttachment: Bool,
+        isAudioMessage: Bool
+    ) -> String {
+        let metadata = (attachmentUTI + "\n" + attachmentMIMEType + "\n"
+                        + attachmentFilename).lowercased()
+
+        if isAudioMessage || metadata.contains("audio/")
+            || metadata.contains("public.audio") || metadata.contains("audio-message")
+            || metadata.contains("voicememo") {
+            return "audio"
+        }
+        if metadata.contains("image/") || metadata.contains("public.image")
+            || metadata.contains("heic") || metadata.contains("jpeg")
+            || metadata.contains("png") || metadata.contains("gif") {
+            return "photos"
+        }
+        if metadata.contains("video/") || metadata.contains("public.movie")
+            || metadata.contains("public.video") || metadata.contains(".mov")
+            || metadata.contains(".mp4") || metadata.contains(".m4v") {
+            return "videos"
+        }
+        if hasAttachment {
+            return "files"
+        }
+        if containsLink(text) {
+            return "links"
+        }
+        return "text"
+    }
+
+    private static func containsLink(_ text: String) -> Bool {
+        guard let detector = try? NSDataDetector(
+            types: NSTextCheckingResult.CheckingType.link.rawValue
+        ) else {
+            return false
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return detector.firstMatch(in: text, options: [], range: range) != nil
     }
 
     /// Best-effort extraction of the message text from the `attributedBody`

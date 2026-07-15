@@ -4,8 +4,10 @@ import AppKit
 struct SearchView: View {
     @ObservedObject var engine: SearchEngine
     @ObservedObject private var filterLayout = FilterLayoutStore.shared
+    @ObservedObject private var refinementLayout = RefinementLayoutStore.shared
     let onClose: () -> Void
     let onEditingChanged: (Bool) -> Void
+    let onRefinementSidebarChanged: (Bool) -> Void
 
     @State private var selectedIndex: Int = 0
     @State private var draggedFilter: FileType?
@@ -13,9 +15,11 @@ struct SearchView: View {
     @State private var dragGrabOffset: CGSize = .zero
     @State private var filterFrames: [FileType: CGRect] = [:]
     @State private var showAddFilters = false
+    @State private var showAddRefinements = false
     @State private var activePreview: ActivePreview?
     @State private var isLoadingPreview = false
     @State private var copiedResultID: String?
+    @AppStorage("refinementSidebarOpen") private var refinementSidebarOpen = false
     @Environment(\.colorScheme) private var colorScheme
 
     /// One-time onboarding hint (the global hotkey) shown until dismissed.
@@ -31,19 +35,16 @@ struct SearchView: View {
         VStack(spacing: 0) {
             searchField
             glassDivider
-            if activePreview == nil {
-                filterChips
-                glassDivider
+            HStack(spacing: 0) {
+                refinementSidebar
+                    .overlay(verticalGlassDivider, alignment: .trailing)
+                    .frame(width: refinementSidebarOpen ? 156 : 0,
+                           alignment: .trailing)
+                    .clipped()
+                    .allowsHitTesting(refinementSidebarOpen)
+                contentBelowSearch
             }
-            if let activePreview {
-                previewContent(activePreview)
-            } else if filterLayout.isEditing {
-                editModeGuidance
-            } else {
-                if !hasSeenWelcome { welcomeBanner }
-                resultsArea
-            }
-            footer
+            .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.thinMaterial)
@@ -85,14 +86,29 @@ struct SearchView: View {
             selectedIndex = engine.results.isEmpty ? 0 : min(selectedIndex, engine.results.count - 1)
             selectedIndex = max(0, selectedIndex)
         }
+        .onChange(of: engine.selectedType) { _ in
+            selectedIndex = 0
+            activePreview = nil
+        }
+        .onChange(of: engine.sortMode) { _ in
+            selectedIndex = 0
+        }
         .onAppear { syncFilterLayout() }
+        .onChange(of: refinementSidebarOpen) { open in
+            onRefinementSidebarChanged(open)
+        }
         .onChange(of: filterLayout.visibleFilters) { _ in syncFilterLayout() }
+        .onChange(of: refinementLayout.layouts) { _ in
+            engine.refinementLayoutChanged()
+        }
         .onChange(of: filterLayout.isEditing) { editing in
             if editing {
                 engine.queryText = ""
                 selectedIndex = 0
+                refinementSidebarOpen = true
             } else {
                 showAddFilters = false
+                showAddRefinements = false
                 draggedFilter = nil
                 dragPointer = nil
                 dragGrabOffset = .zero
@@ -110,6 +126,25 @@ struct SearchView: View {
         }
     }
 
+    private var contentBelowSearch: some View {
+        VStack(spacing: 0) {
+            if activePreview == nil {
+                filterChips
+                glassDivider
+            }
+            if let activePreview {
+                previewContent(activePreview)
+            } else if filterLayout.isEditing {
+                editModeGuidance
+            } else {
+                if !hasSeenWelcome { welcomeBanner }
+                resultsArea
+            }
+            footer
+        }
+        .frame(width: 740)
+    }
+
     private var panelShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: 24, style: .continuous)
     }
@@ -124,6 +159,343 @@ struct SearchView: View {
                 )
             )
             .frame(height: 0.5)
+    }
+
+    private var verticalGlassDivider: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [.clear, Color.primary.opacity(0.11), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(width: 0.5)
+    }
+
+    private var refinementSidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Text(engine.selectedType.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if filterLayout.isEditing {
+                    Button {
+                        showAddRefinements.toggle()
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .popover(isPresented: $showAddRefinements, arrowEdge: .leading) {
+                        addRefinementsPopover
+                    }
+                    .help("Add custom refinements")
+                } else if !engine.refinementSelection.isEmpty {
+                    Button("Clear") {
+                        engine.clearRefinements()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                }
+            }
+                .padding(.horizontal, 14)
+                .padding(.top, 17)
+                .padding(.bottom, 10)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 13) {
+                    ForEach(displayedRefinementDimensions) { dimension in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 5) {
+                                Text(dimension.title.uppercased())
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .tracking(0.45)
+                                    .foregroundStyle(Color.secondary.opacity(0.7))
+                                Spacer(minLength: 0)
+                                if filterLayout.isEditing {
+                                    Button {
+                                        refinementLayout.hideDimension(
+                                            dimension.id, for: engine.selectedType
+                                        )
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .symbolRenderingMode(.palette)
+                                            .foregroundStyle(.white, Color.red)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 10)
+
+                            if filterLayout.isEditing {
+                                ForEach(dimension.options) { option in
+                                    editableRefinementOption(option, dimension: dimension)
+                                }
+                            } else {
+                                refinementButton(title: "All",
+                                                 dimensionID: dimension.id,
+                                                 optionID: nil,
+                                                 isEnabled: true)
+
+                                ForEach(dimension.options) { option in
+                                    refinementButton(title: option.title,
+                                                     dimensionID: dimension.id,
+                                                     optionID: option.id,
+                                                     isEnabled: option.isEnabled)
+                                }
+                            }
+
+                            if !filterLayout.isEditing,
+                               let reason = dimension.unavailableReason {
+                                Text(reason)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Color.secondary.opacity(0.65))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 10)
+                                    .padding(.top, 2)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 14)
+            }
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: 0.5)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("SORT")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.45)
+                    .foregroundStyle(Color.secondary.opacity(0.7))
+                    .padding(.horizontal, 2)
+
+                HStack(spacing: 5) {
+                    sortButton("A–Z", mode: .alphabetical)
+                    sortButton("Recent", mode: .recent)
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 9)
+        }
+        .frame(width: 156)
+        .background(Color.white.opacity(colorScheme == .dark ? 0.018 : 0.075))
+    }
+
+    private var displayedRefinementDimensions: [RefinementDimension] {
+        if filterLayout.isEditing {
+            return refinementLayout.resolvedDimensions(for: engine.selectedType)
+        }
+        return engine.refinementDimensions
+    }
+
+    private func editableRefinementOption(
+        _ option: RefinementOption,
+        dimension: RefinementDimension
+    ) -> some View {
+        HStack(spacing: 5) {
+            Text(option.title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button {
+                refinementLayout.hideOption(
+                    option.id, dimensionID: dimension.id,
+                    for: engine.selectedType
+                )
+            } label: {
+                Image(systemName: "minus.circle.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, Color.red)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 24)
+    }
+
+    private func refinementButton(title: String, dimensionID: String,
+                                  optionID: String?, isEnabled: Bool) -> some View {
+        let selected = engine.refinementSelection.optionID(for: dimensionID) == optionID
+        return Button {
+            engine.selectRefinement(dimensionID: dimensionID, optionID: optionID)
+        } label: {
+            HStack(spacing: 5) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                } else if !isEnabled {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(Color.secondary.opacity(0.55))
+                }
+            }
+            .foregroundStyle(selected ? Color.primary : Color.secondary.opacity(
+                isEnabled ? 1 : 0.55
+            ))
+            .padding(.horizontal, 9)
+            .frame(height: 25)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.accentColor.opacity(colorScheme == .dark ? 0.22 : 0.12))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+    }
+
+    private func sortButton(_ title: String, mode: ResultSortMode) -> some View {
+        let selected = engine.sortMode == mode
+        return Button {
+            engine.selectSortMode(mode)
+        } label: {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(selected ? Color.primary : Color.secondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 25)
+                .background {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(selected
+                              ? Color.accentColor.opacity(colorScheme == .dark ? 0.22 : 0.12)
+                              : Color.primary.opacity(0.035))
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var refinementAddEntries: [RefinementAddEntry] {
+        let type = engine.selectedType
+        let hiddenDimensions = refinementLayout.hiddenDimensions(for: type)
+        var entries = hiddenDimensions.map {
+            RefinementAddEntry(
+                dimensionID: $0.id, optionID: nil,
+                title: $0.title, detail: "Add section",
+                group: refinementAddGroup(for: $0.id)
+            )
+        }
+        for dimension in refinementLayout.resolvedDimensions(for: type) {
+            entries += refinementLayout.hiddenOptions(
+                for: type, dimensionID: dimension.id
+            ).map {
+                RefinementAddEntry(
+                    dimensionID: dimension.id, optionID: $0.id,
+                    title: $0.title, detail: dimension.title,
+                    group: refinementAddGroup(for: dimension.id)
+                )
+            }
+        }
+        return entries
+    }
+
+    private func refinementAddGroup(for dimensionID: String) -> String {
+        switch dimensionID {
+        case "format", "kind", "pdf-text", "content", "audio-type":
+            return "Formats"
+        case "location", "container", "photo-source", "installed-location":
+            return "Locations"
+        case "account", "browser", "conversation", "source-app", "domain":
+            return "Sources"
+        default:
+            return "Other"
+        }
+    }
+
+    private var addRefinementsPopover: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text("Customize \(engine.selectedType.title)")
+                .font(.system(size: 15, weight: .semibold))
+            Text("Add only the refinements you use.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            if refinementAddEntries.isEmpty {
+                Text("Every curated refinement is already shown.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 14)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(["Formats", "Locations", "Sources", "Other"], id: \.self) {
+                            group in
+                            let entries = refinementAddEntries.filter { $0.group == group }
+                            if !entries.isEmpty {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(group.uppercased())
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .tracking(0.45)
+                                        .foregroundStyle(Color.secondary.opacity(0.72))
+                                    ForEach(entries) { entry in
+                                        Button {
+                                            if let optionID = entry.optionID {
+                                                refinementLayout.addOption(
+                                                    optionID,
+                                                    dimensionID: entry.dimensionID,
+                                                    for: engine.selectedType
+                                                )
+                                            } else {
+                                                refinementLayout.addDimension(
+                                                    entry.dimensionID,
+                                                    for: engine.selectedType
+                                                )
+                                            }
+                                        } label: {
+                                            HStack(spacing: 8) {
+                                                VStack(alignment: .leading, spacing: 1) {
+                                                    Text(entry.title)
+                                                        .font(.system(
+                                                            size: 12, weight: .medium
+                                                        ))
+                                                    Text(entry.detail)
+                                                        .font(.system(size: 9))
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                                Spacer()
+                                                Image(systemName: "plus.circle.fill")
+                                                    .foregroundStyle(Color.accentColor)
+                                            }
+                                            .contentShape(Rectangle())
+                                            .padding(.vertical, 3)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .frame(height: min(CGFloat(refinementAddEntries.count) * 38 + 44, 280))
+            }
+
+            Divider()
+            Button("Restore \(engine.selectedType.title) Defaults") {
+                refinementLayout.reset(engine.selectedType)
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+        }
+        .frame(width: 250)
+        .padding(16)
     }
 
     // MARK: - Search field
@@ -147,6 +519,20 @@ struct SearchView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.accentColor)
             } else {
+                Button {
+                    withAnimation(
+                        .timingCurve(0.22, 1, 0.36, 1, duration: 0.28)
+                    ) {
+                        refinementSidebarOpen.toggle()
+                    }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Color.secondary.opacity(0.82))
+                }
+                .buttonStyle(.plain)
+                .help(refinementSidebarOpen ? "Hide refinements" : "Show refinements")
+
                 Image(systemName: filterLayout.isEditing ? "slider.horizontal.3" : "magnifyingglass")
                     .font(.system(size: 21, weight: .medium))
                     .foregroundStyle(Color.secondary.opacity(0.82))
@@ -156,8 +542,8 @@ struct SearchView: View {
                     focusToken: engine.focusRequestToken,
                     placeholder: filterLayout.isEditing ? "Edit your experience…" : "Search your Mac…",
                     isEnabled: !filterLayout.isEditing,
-                    onMoveDown: { moveSelection(1) },
-                    onMoveUp: { moveSelection(-1) },
+                    onMoveDown: { moveSelection(verticalSelectionStep) },
+                    onMoveUp: { moveSelection(-verticalSelectionStep) },
                     onSubmit: { openSelected() },
                     onReveal: { revealSelected() },
                     onPreview: { previewSelected() },
@@ -234,6 +620,9 @@ struct SearchView: View {
                             if filterLayout.isEditing {
                                 filterChipLabel(type, isSelected: isSelected)
                                     .contentShape(Capsule())
+                                    .onTapGesture {
+                                        engine.selectedType = type
+                                    }
                             } else {
                                 Button {
                                     engine.selectedType = type
@@ -1003,6 +1392,17 @@ struct SearchView: View {
     }
 
     private var resultsList: some View {
+        Group {
+            if engine.selectedType.isApps || engine.selectedType == .photos {
+                gridResultsList
+            } else {
+                rowResultsList
+            }
+        }
+        .id(engine.selectedType)
+    }
+
+    private var rowResultsList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -1019,21 +1419,10 @@ struct SearchView: View {
                         ResultRow(result: result, isSelected: index == selectedIndex,
                                   tokens: highlightTokens,
                                   showRecency: engine.selectedType == .recents)
-                            .id(index)
+                            .id(result.id)
                             .onTapGesture(count: 2) {
                                 selectedIndex = index
-                                if result.source == .message
-                                    || result.source == .note
-                                    || result.source == .mail
-                                    || result.source == .calendar
-                                    || result.source == .clipboard {
-                                    showPreview(for: result)
-                                } else if result.source == .file
-                                            && !result.isFolder && !result.isApp {
-                                    QuickLookController.shared.preview(result.url)
-                                } else {
-                                    openSelected()
-                                }
+                                activateResult(result)
                             }
                             .onTapGesture {
                                 selectedIndex = index
@@ -1063,10 +1452,88 @@ struct SearchView: View {
                 .padding(.vertical, 8)
             }
             .onChange(of: selectedIndex) { newValue in
-                withAnimation(.easeOut(duration: 0.1)) {
-                    proxy.scrollTo(newValue, anchor: .center)
+                if engine.results.indices.contains(newValue) {
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        proxy.scrollTo(engine.results[newValue].id, anchor: .center)
+                    }
                 }
             }
+        }
+    }
+
+    private var gridResultsList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 8) {
+                    LazyVGrid(
+                        columns: Array(
+                            repeating: GridItem(.flexible(), spacing: 10),
+                            count: 4
+                        ),
+                        spacing: 10
+                    ) {
+                        ForEach(Array(engine.results.enumerated()), id: \.element.id) {
+                            index, result in
+                            GridResultCard(
+                                result: result,
+                                isSelected: index == selectedIndex,
+                                style: engine.selectedType.isApps ? .app : .image
+                            )
+                            .id(result.id)
+                            .onTapGesture(count: 2) {
+                                selectedIndex = index
+                                activateResult(result)
+                            }
+                            .onTapGesture {
+                                selectedIndex = index
+                            }
+                        }
+                    }
+
+                    if engine.canLoadMore || engine.isLoadingMore {
+                        HStack {
+                            Spacer()
+                            if engine.isLoadingMore {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Text("Loading more…")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .frame(height: 36)
+                        .id("grid-load-more-\(engine.results.count)-\(engine.isLoadingMore)")
+                        .onAppear {
+                            engine.loadMore()
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 10)
+            }
+            .onChange(of: selectedIndex) { newValue in
+                if engine.results.indices.contains(newValue) {
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        proxy.scrollTo(engine.results[newValue].id, anchor: .center)
+                    }
+                }
+            }
+        }
+    }
+
+    private func activateResult(_ result: SearchResult) {
+        if result.source == .message
+            || result.source == .note
+            || result.source == .mail
+            || result.source == .calendar
+            || result.source == .clipboard {
+            showPreview(for: result)
+        } else if result.source == .file && !result.isFolder && !result.isApp {
+            QuickLookController.shared.preview(result.url)
+        } else {
+            openSelected()
         }
     }
 
@@ -1331,6 +1798,10 @@ struct SearchView: View {
 
     // MARK: - Selection + actions
 
+    private var verticalSelectionStep: Int {
+        engine.selectedType.isApps || engine.selectedType == .photos ? 4 : 1
+    }
+
     private func moveSelection(_ delta: Int) {
         guard !engine.results.isEmpty else { return }
         let count = engine.results.count
@@ -1358,6 +1829,7 @@ struct SearchView: View {
         dragPointer = nil
         dragGrabOffset = .zero
         showAddFilters = false
+        showAddRefinements = false
         filterLayout.isEditing = false
     }
 
@@ -1395,7 +1867,12 @@ struct SearchView: View {
             if let url = URL(string: result.path) { NSWorkspace.shared.open(url) }
             onClose()
         case .settings:
-            if let url = URL(string: result.path) { NSWorkspace.shared.open(url) }
+            if let url = URL(string: result.path) {
+                UserDefaults.standard.set(
+                    Date(), forKey: "beacon.setting.lastOpened.\(result.id.dropFirst(8))"
+                )
+                NSWorkspace.shared.open(url)
+            }
             onClose()
         }
     }
@@ -1652,6 +2129,18 @@ private struct GoogleDriveMark: View {
             }
         }
         .aspectRatio(1.1, contentMode: .fit)
+    }
+}
+
+private struct RefinementAddEntry: Identifiable {
+    let dimensionID: String
+    let optionID: String?
+    let title: String
+    let detail: String
+    let group: String
+
+    var id: String {
+        dimensionID + ":" + (optionID ?? "dimension")
     }
 }
 

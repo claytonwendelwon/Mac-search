@@ -96,6 +96,7 @@ if ! swift build -c release; then
     -framework AppKit \
     -framework Carbon \
     -framework EventKit \
+    -framework QuartzCore \
     -framework UniformTypeIdentifiers \
     -framework QuickLook \
     -framework QuickLookThumbnailing \
