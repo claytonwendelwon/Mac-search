@@ -161,8 +161,6 @@ enum FileType: String, CaseIterable, Identifiable {
             return ["public.movie"]
         case .docs:
             return [
-                "public.text",
-                "public.composite-content",
                 "public.presentation",
                 "public.spreadsheet",
                 "com.microsoft.word.doc",
@@ -218,7 +216,9 @@ enum FileType: String, CaseIterable, Identifiable {
             return [
                 "txt", "rtf", "rtfd", "md", "markdown", "pages", "numbers", "key",
                 "doc", "docx", "docm", "xls", "xlsx", "xlsm", "csv",
-                "ppt", "pptx", "pptm", "odt", "ods", "odp"
+                "ppt", "pptx", "pptm", "odt", "ods", "odp",
+                "tex", "latex", "bib", "ipynb", "epub", "mobi", "azw", "azw3",
+                "indd", "idml", "html", "htm", "json", "jsonl", "yaml", "yml", "xml"
             ]
         case .photos:
             return [

@@ -38,6 +38,11 @@ struct MessageThreadPreview {
 
 /// One row in the results list, from either the Spotlight index or Messages.
 struct SearchResult: Identifiable, Hashable {
+    private static let iconCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 1_000
+        return cache
+    }()
     let id: String        // unique + stable (file path, or "msg:<rowid>")
     let source: ResultSource
     let name: String      // file name, or the message's sender/contact
@@ -76,17 +81,18 @@ struct SearchResult: Identifiable, Hashable {
     var url: URL { URL(fileURLWithPath: path) }
 
     var icon: NSImage {
+        let iconPath: String?
         switch source {
         case .file:
-            return NSWorkspace.shared.icon(forFile: path)
+            iconPath = path
         case .message:
-            return NSWorkspace.shared.icon(forFile: "/System/Applications/Messages.app")
+            iconPath = "/System/Applications/Messages.app"
         case .note:
-            return NSWorkspace.shared.icon(forFile: "/System/Applications/Notes.app")
+            iconPath = "/System/Applications/Notes.app"
         case .mail:
-            return NSWorkspace.shared.icon(forFile: "/System/Applications/Mail.app")
+            iconPath = "/System/Applications/Mail.app"
         case .calendar:
-            return NSWorkspace.shared.icon(forFile: "/System/Applications/Calendar.app")
+            iconPath = "/System/Applications/Calendar.app"
         case .clipboard:
             let symbol = NSImage(systemSymbolName: "doc.on.clipboard",
                                  accessibilityDescription: "Clipboard")
@@ -100,6 +106,12 @@ struct SearchResult: Identifiable, Hashable {
                                  accessibilityDescription: "System Settings")
             return symbol ?? NSWorkspace.shared.icon(forFile: "/System/Applications/System Settings.app")
         }
+        guard let iconPath else { return NSImage() }
+        let key = iconPath as NSString
+        if let cached = Self.iconCache.object(forKey: key) { return cached }
+        let image = NSWorkspace.shared.icon(forFile: iconPath)
+        Self.iconCache.setObject(image, forKey: key)
+        return image
     }
 
     var directory: String {
@@ -438,6 +450,13 @@ enum ResultSortMode: String, CaseIterable {
     case recent
 }
 
+private struct BoundedBrowseCacheEntry {
+    let rows: [SearchResult]
+    let exhausted: Bool
+    let readLimit: Int
+    let cachedAt: Date
+}
+
 /// Wraps the Spotlight index via two `NSMetadataQuery` passes:
 ///   1. a name/path query (fast, few results) and
 ///   2. a document-contents query (text inside files).
@@ -460,7 +479,10 @@ final class SearchEngine: ObservableObject {
             contentQuery.stop()
             contentQueryActive = false
             activeIndexToken = 0
+            indexedBrowsePaused = false
+            lastIndexedPublishCount = 0
             fileResults = []
+            priorityFolderResults = []
             scannedAppResults = []
             messageResults = []
             noteResults = []
@@ -485,10 +507,13 @@ final class SearchEngine: ObservableObject {
     ) ?? .recent
 
     var refinementDimensions: [RefinementDimension] {
-        RefinementCatalog.enriched(
+        if let cachedRefinementDimensions { return cachedRefinementDimensions }
+        let dimensions = RefinementCatalog.enriched(
             RefinementLayoutStore.shared.resolvedDimensions(for: selectedType),
             with: refinementCandidates
         )
+        cachedRefinementDimensions = dimensions
+        return dimensions
     }
 
     /// True when the Messages filter is active but we can't read the Messages
@@ -506,8 +531,8 @@ final class SearchEngine: ObservableObject {
     /// Bumped by the app delegate to ask the search field to (re)take focus.
     @Published var focusRequestToken: Int = 0
 
-    private let nameQuery = NSMetadataQuery()
-    private let contentQuery = NSMetadataQuery()
+    private var nameQuery = NSMetadataQuery()
+    private var contentQuery = NSMetadataQuery()
     private let homePath = NSHomeDirectory()
 
     private let messageStore = MessageStore()
@@ -526,6 +551,9 @@ final class SearchEngine: ObservableObject {
     private let appQueue = DispatchQueue(label: "com.beacon.apps", qos: .userInitiated)
     private let metadataQueue = DispatchQueue(
         label: "com.beacon.metadata", qos: .userInitiated
+    )
+    private let priorityMetadataQueue = DispatchQueue(
+        label: "com.beacon.metadata.priority", qos: .userInitiated
     )
     private let facetQueue = DispatchQueue(
         label: "com.beacon.refinement-facets", qos: .utility
@@ -547,36 +575,41 @@ final class SearchEngine: ObservableObject {
         { [liveToken] in !liveToken.isCurrent(token) }
     }
 
-    private let nameReadCap = 500
-    private let contentReadCap = 250
-    private let pageSize = 80
-    private var pageLimit = 80
+    private let nameReadCap = 800
+    private let contentReadCap = 400
+    private let pageSize = SearchPerformancePolicy.pageSize
+    private var pageLimit = SearchPerformancePolicy.pageSize
     /// Recents reads deeper than regular searches: it is scoped to the user's
     /// own folders, but a burst of new files (a build, an export) shouldn't
     /// push a fresh download out of the readable window.
     private let recentsReadCap = 1500
 
     private var fileResults: [SearchResult] = []
+    private var priorityFolderResults: [SearchResult] = []
     private var scannedAppResults: [SearchResult] = []
     private var messageResults: [SearchResult] = []
     private var noteResults: [SearchResult] = []
     private var mailResults: [SearchResult] = []
     private var calendarResults: [SearchResult] = []
-    private var refinementCandidates: [SearchResult] = []
+    private var refinementCandidates: [SearchResult] = [] {
+        didSet { cachedRefinementDimensions = nil }
+    }
+    private var cachedRefinementDimensions: [RefinementDimension]?
     private var recentFileCatalog: [SearchResult] = []
     private var projectDiscoverySignature = ""
+    private var boundedBrowseCaches: [String: BoundedBrowseCacheEntry] = [:]
 
-    private let allFileCap = 44
-    private let allMessageCap = 6
-    private let allNoteCap = 6
-    private let allMailCap = 6
-    private let allCalendarCap = 6
+    private let allFileCap = 100
+    private let allMessageCap = 12
+    private let allNoteCap = 12
+    private let allMailCap = 12
+    private let allCalendarCap = 12
 
-    private var pagedAllFileCap: Int { max(allFileCap, pageLimit * 55 / 100) }
-    private var pagedAllMessageCap: Int { max(allMessageCap, pageLimit * 11 / 100) }
-    private var pagedAllNoteCap: Int { max(allNoteCap, pageLimit * 11 / 100) }
+    private var pagedAllFileCap: Int { max(allFileCap, pageLimit * 65 / 100) }
+    private var pagedAllMessageCap: Int { max(allMessageCap, pageLimit * 8 / 100) }
+    private var pagedAllNoteCap: Int { max(allNoteCap, pageLimit * 8 / 100) }
     private var pagedAllMailCap: Int {
-        max(allMailCap, pageLimit * 11 / 100)
+        max(allMailCap, pageLimit * 8 / 100)
     }
     private var pagedAllCalendarCap: Int {
         max(allCalendarCap, pageLimit - pagedAllFileCap - pagedAllMessageCap
@@ -616,6 +649,8 @@ final class SearchEngine: ObservableObject {
     private var pendingSearch: DispatchWorkItem?
     private var currentTokens: [String] = []
     private var activeIndexToken = 0
+    private var indexedBrowsePaused = false
+    private var lastIndexedPublishCount = 0
     private var allIncludedTypes = Set(FileType.allCases.filter(\.includedInAll))
 
     /// Content search (text inside files) only kicks in once the query is long
@@ -659,6 +694,7 @@ final class SearchEngine: ObservableObject {
     }
 
     func refinementLayoutChanged() {
+        cachedRefinementDimensions = nil
         let updated = RefinementCatalog.sanitized(
             refinementSelection,
             dimensions: RefinementLayoutStore.shared.resolvedDimensions(
@@ -702,8 +738,7 @@ final class SearchEngine: ObservableObject {
     private func sourceReadLimit(cap: Int) -> Int {
         let base = pageLimit + 1
         guard !refinementSelection.isEmpty else { return base }
-        if isBrowsing { return cap }
-        return min(cap, max(base, pageLimit * 12))
+        return min(cap, max(base, pageLimit * 4))
     }
 
     private static let defaultSortDescriptors = [
@@ -719,19 +754,33 @@ final class SearchEngine: ObservableObject {
             )
         )
         calendarPermission = calendarStore.permissionState
-        for query in [nameQuery, contentQuery] {
-            query.searchScopes = [NSMetadataQueryLocalComputerScope]
-            query.sortDescriptors = Self.defaultSortDescriptors
-            query.notificationBatchingInterval = 0.2
-        }
+        configureIndexQuery(nameQuery)
+        configureIndexQuery(contentQuery)
 
         let center = NotificationCenter.default
-        for query in [nameQuery, contentQuery] {
+        for name in [
+            Notification.Name.NSMetadataQueryDidFinishGathering,
+            Notification.Name.NSMetadataQueryGatheringProgress,
+            Notification.Name.NSMetadataQueryDidUpdate
+        ] {
             center.addObserver(self, selector: #selector(queryUpdated),
-                               name: .NSMetadataQueryDidFinishGathering, object: query)
-            center.addObserver(self, selector: #selector(queryUpdated),
-                               name: .NSMetadataQueryDidUpdate, object: query)
+                               name: name, object: nil)
         }
+    }
+
+    private func configureIndexQuery(_ query: NSMetadataQuery) {
+        query.searchScopes = [NSMetadataQueryLocalComputerScope]
+        query.sortDescriptors = Self.defaultSortDescriptors
+        query.notificationBatchingInterval = 0.2
+    }
+
+    private func replaceIndexQueries() {
+        nameQuery.stop()
+        contentQuery.stop()
+        nameQuery = NSMetadataQuery()
+        contentQuery = NSMetadataQuery()
+        configureIndexQuery(nameQuery)
+        configureIndexQuery(contentQuery)
     }
 
     deinit {
@@ -752,9 +801,17 @@ final class SearchEngine: ObservableObject {
             RefinementMatcher.matches($0, type: selectedType,
                                       selection: refinementSelection)
         }
-        let page = PageWindow.slice(sortedForDisplay(refined), limit: pageLimit)
+        let page: (rows: [SearchResult], hasMore: Bool)
+        if currentTokens.isEmpty {
+            page = PageWindow.slice(sortedForDisplay(refined), limit: pageLimit)
+        } else {
+            page = PageWindow.slice(refined, limit: pageLimit)
+        }
+        let visibleRows = sortedForDisplay(page.rows)
         canLoadMore = page.hasMore
-        results = page.rows
+        if results != visibleRows {
+            results = visibleRows
+        }
         isSearching = false
         isLoadingMore = false
     }
@@ -812,6 +869,14 @@ final class SearchEngine: ObservableObject {
         }
     }
 
+    private func relevancePreservingPage(_ rows: [SearchResult],
+                                         limit: Int) -> [SearchResult] {
+        let retained = currentTokens.isEmpty
+            ? Array(sortedForDisplay(rows).prefix(limit))
+            : Array(rows.prefix(limit))
+        return sortedForDisplay(retained)
+    }
+
     private func scheduleSearch() {
         pendingSearch?.cancel()
         pageLimit = pageSize
@@ -832,12 +897,12 @@ final class SearchEngine: ObservableObject {
             activeIndexToken = 0
             currentTokens = []
             fileResults = []
+            priorityFolderResults = []
             scannedAppResults = []
             messageResults = []
             noteResults = []
             mailResults = []
             calendarResults = []
-            results = []
             isSearching = true
             runSearch(term: "", token: token)
             if selectedType.needsFullDiskAccess { checkDatabaseAccess() }
@@ -867,8 +932,13 @@ final class SearchEngine: ObservableObject {
             searchUniversalRecents(token: token)
             return
         }
-        if trimmed.isEmpty, selectedType.usesFileIndex, refinementSelection.isEmpty {
-            searchRecentFiles(type: selectedType, token: token)
+        if trimmed.isEmpty, selectedType.usesFileIndex,
+           refinementSelection.isEmpty {
+            if indexedBrowsePaused {
+                searchIndexedBrowse(type: selectedType, token: token)
+            } else {
+                publishIndexResults()
+            }
             return
         }
         if trimmed.isEmpty, selectedType.usesFileIndex {
@@ -935,7 +1005,7 @@ final class SearchEngine: ObservableObject {
         }
         if selectedType.usesFileIndex, currentTokens.isEmpty,
            refinementSelection.isEmpty {
-            searchRecentFiles(type: selectedType, token: token)
+            searchIndexedBrowse(type: selectedType, token: token)
             return
         }
         if selectedType.usesFileIndex, currentTokens.isEmpty {
@@ -943,6 +1013,16 @@ final class SearchEngine: ObservableObject {
             return
         }
 
+        if selectedType.isMessages, currentTokens.isEmpty {
+            nameQuery.stop()
+            contentQuery.stop()
+            contentQueryActive = false
+            activeIndexToken = 0
+            canLoadMore = false
+            isLoadingMore = false
+            isSearching = false
+            return
+        }
         if selectedType.isMessages {
             searchMessages(tokens: currentTokens, token: token)
             return
@@ -995,8 +1075,10 @@ final class SearchEngine: ObservableObject {
 
         let scope = indexScope(for: selectedType)
 
-        nameQuery.stop()
-        contentQuery.stop()
+        replaceIndexQueries()
+        priorityFolderResults = []
+        indexedBrowsePaused = false
+        lastIndexedPublishCount = 0
         contentQueryActive = term.count >= contentMinQueryLength
         if scope.searchFiles {
             activeIndexToken = token
@@ -1019,9 +1101,13 @@ final class SearchEngine: ObservableObject {
                 )
                 contentQuery.start()
             }
+            if selectedType == .all || selectedType == .folders {
+                gatherPriorityFolders(tokens: currentTokens, token: token)
+            }
         } else {
             activeIndexToken = 0
             fileResults = []
+            priorityFolderResults = []
         }
 
         // In "All" mode, also fold in (best-effort) messages and notes. Clear
@@ -1055,6 +1141,11 @@ final class SearchEngine: ObservableObject {
         var paths = type.pathPrefixes
         var excluded: [String] = []
         var searchFiles = true
+
+        if type == .docs {
+            trees = []
+            extensions = Array(enabledDocumentExtensions()).sorted()
+        }
 
         if let refinedPaths = refinementPathPrefixes(), !refinedPaths.isEmpty {
             paths = refinedPaths
@@ -1103,12 +1194,10 @@ final class SearchEngine: ObservableObject {
     }
 
     private func searchUniversalRecents(token: Int) {
-        nameQuery.stop()
-        contentQuery.stop()
+        replaceIndexQueries()
         contentQueryActive = false
         activeIndexToken = token
         currentTokens = []
-        let readLimit = 10_000
         let cutoff = Date(timeIntervalSinceNow: -30 * 86_400)
         nameQuery.searchScopes = [homePath]
         nameQuery.sortDescriptors = Self.defaultSortDescriptors
@@ -1131,66 +1220,31 @@ final class SearchEngine: ObservableObject {
             gatherCalendarForAll(tokens: [], token: token)
         }
 
-        recentsQueue.async { [weak self] in
-            guard let self else { return }
-            let rows = self.recentsStore.search(
-                tokens: [], limit: readLimit,
-                isCancelled: self.cancellation(for: token)
-            ).map { SearchResult(recent: $0) }
-            DispatchQueue.main.async {
-                guard token == self.searchToken, self.selectedType == .all else { return }
-                self.nameQuery.stop()
-                self.activeIndexToken = 0
-                self.recentFileCatalog = rows
-                var byPath = Dictionary(uniqueKeysWithValues: self.fileResults.map {
-                    ($0.path, $0)
-                })
-                for row in rows { byPath[row.path] = row }
-                self.fileResults = byPath.values
-                    .sorted {
-                        if $0.effectiveRecency != $1.effectiveRecency {
-                            return $0.effectiveRecency > $1.effectiveRecency
-                        }
-                        return $0.name.localizedStandardCompare($1.name) == .orderedAscending
-                    }
-                    .prefix(readLimit)
-                    .map { $0 }
-                self.publish()
-                self.isSearching = false
-            }
-        }
     }
 
-    private func searchRecentFiles(type: FileType, token: Int) {
-        nameQuery.stop()
-        contentQuery.stop()
+    private func searchIndexedBrowse(type: FileType, token: Int) {
+        replaceIndexQueries()
         contentQueryActive = false
-        activeIndexToken = 0
-        let readLimit = 50_000
-        let immediate = recentFileCatalog.filter {
-            matchesRecentFileType($0, type: type)
+        currentTokens = []
+        indexedBrowsePaused = false
+        lastIndexedPublishCount = 0
+        let scope = indexScope(for: type)
+        guard scope.searchFiles else {
+            activeIndexToken = 0
+            publishPage([])
+            return
         }
-        if !immediate.isEmpty {
-            fileResults = immediate
-            publishPage(immediate)
-        }
-
-        recentsQueue.async { [weak self] in
-            guard let self else { return }
-            let catalog = self.recentsStore.search(
-                tokens: [], limit: readLimit,
-                isCancelled: self.cancellation(for: token)
-            )
-            .map { SearchResult(recent: $0) }
-            let rows = catalog.filter { self.matchesRecentFileType($0, type: type) }
-
-            DispatchQueue.main.async {
-                guard token == self.searchToken, self.selectedType == type else { return }
-                self.recentFileCatalog = catalog
-                self.fileResults = rows
-                self.publishPage(rows)
-            }
-        }
+        activeIndexToken = token
+        nameQuery.searchScopes = [NSMetadataQueryLocalComputerScope]
+        nameQuery.sortDescriptors = Self.defaultSortDescriptors
+        nameQuery.predicate = namePredicate(
+            tokens: [],
+            trees: scope.trees,
+            extensions: scope.extensions,
+            pathPrefixes: scope.pathPrefixes,
+            excludedTrees: scope.excludedTrees
+        )
+        nameQuery.start()
     }
 
     private func searchExpandedFileBrowse(type: FileType, token: Int) {
@@ -1199,9 +1253,25 @@ final class SearchEngine: ObservableObject {
         contentQueryActive = false
         activeIndexToken = 0
         let selection = refinementSelection
-        let readLimit = min(50_000, max(2_000, pageLimit * 20))
-        let query = boundedQueryString(for: type)
+        let key = boundedBrowseCacheKey(type: type, selection: selection)
+        let cached = boundedBrowseCaches[key]
+        if let cached,
+           cached.rows.count > pageLimit || cached.exhausted {
+            fileResults = cached.rows
+            publishPage(cached.rows)
+            if !cached.exhausted {
+                canLoadMore = true
+            }
+            return
+        }
+
+        let previousLimit = cached?.readLimit ?? 0
+        let readLimit = SearchPerformancePolicy.metadataReadLimit(
+            pageLimit: pageLimit, previousLimit: previousLimit
+        )
+        let query = boundedQueryString(for: type, selection: selection)
         let scopes = boundedSearchScopes(for: type, selection: selection)
+        let needs = boundedMetadataNeeds(for: selection)
 
         metadataQueue.async { [weak self] in
             guard let self else { return }
@@ -1209,6 +1279,7 @@ final class SearchEngine: ObservableObject {
                 queryString: query,
                 scopes: scopes,
                 limit: readLimit,
+                needs: needs,
                 isCancelled: self.cancellation(for: token)
             )
             let rows = records
@@ -1223,21 +1294,61 @@ final class SearchEngine: ObservableObject {
             DispatchQueue.main.async {
                 guard token == self.searchToken, self.selectedType == type,
                       self.refinementSelection == selection else { return }
+                let exhausted = records.count < readLimit
+                    || readLimit >= SearchPerformancePolicy.maximumMetadataFetch
+                self.boundedBrowseCaches[key] = BoundedBrowseCacheEntry(
+                    rows: rows,
+                    exhausted: exhausted,
+                    readLimit: readLimit,
+                    cachedAt: Date()
+                )
+                if self.boundedBrowseCaches.count > 6,
+                   let oldest = self.boundedBrowseCaches.min(by: {
+                       $0.value.cachedAt < $1.value.cachedAt
+                   })?.key {
+                    self.boundedBrowseCaches.removeValue(forKey: oldest)
+                }
                 self.fileResults = rows
                 self.publishPage(rows)
-                if records.count >= readLimit {
+                if !exhausted {
                     self.canLoadMore = true
                 }
             }
         }
     }
 
-    private func boundedQueryString(for type: FileType) -> String {
+    private func boundedBrowseCacheKey(type: FileType,
+                                       selection: RefinementSelection) -> String {
+        let choices = selection.choices.sorted {
+            $0.key == $1.key ? $0.value < $1.value : $0.key < $1.key
+        }
+        return type.rawValue + "|" + choices.map { "\($0.key)=\($0.value)" }
+            .joined(separator: "&")
+    }
+
+    private func boundedMetadataNeeds(
+        for selection: RefinementSelection
+    ) -> BoundedMetadataNeeds {
+        BoundedMetadataNeeds(
+            dateTaken: selection.optionID(for: "photo-date") != nil,
+            duration: selection.optionID(for: "duration") != nil,
+            authors: selection.optionID(for: "artist") != nil,
+            tags: selection.optionID(for: "favorite") != nil,
+            searchableText: selection.optionID(for: "pdf-text") != nil
+        )
+    }
+
+    private func boundedQueryString(for type: FileType,
+                                    selection: RefinementSelection) -> String {
         var alternatives: [String] = []
-        alternatives += type.contentTypeTrees.map {
+        let trees = type == .docs ? [] : type.contentTypeTrees
+        let extensions = type == .docs
+            ? Array(enabledDocumentExtensions()).sorted()
+            : type.filenameExtensions
+        alternatives += trees.map {
             "kMDItemContentTypeTree == \"\(mdQueryEscaped($0))\"cd"
         }
-        alternatives += type.filenameExtensions.map {
+        alternatives += extensions.map {
             "kMDItemFSName == \"*.\(mdQueryEscaped($0))\"cd"
         }
         if type == .folders {
@@ -1246,9 +1357,39 @@ final class SearchEngine: ObservableObject {
         if alternatives.isEmpty {
             alternatives.append("kMDItemFSName == \"*\"cd")
         }
-        return alternatives.count == 1
+        let typeClause = alternatives.count == 1
             ? alternatives[0]
             : "(" + alternatives.joined(separator: " || ") + ")"
+        var clauses = [typeClause]
+        if let format = selection.optionID(for: "format"),
+           let extensions = RefinementValueSets.extensions(for: format),
+           !extensions.isEmpty {
+            let formats = extensions.sorted().map {
+                "kMDItemFSName == \"*.\(mdQueryEscaped($0))\"cd"
+            }
+            clauses.append(
+                formats.count == 1
+                    ? formats[0]
+                    : "(" + formats.joined(separator: " || ") + ")"
+            )
+        }
+        if let duration = selection.optionID(for: "duration") {
+            switch duration {
+            case "short":
+                clauses.append("kMDItemDurationSeconds < 60")
+            case "medium":
+                clauses.append(
+                    "(kMDItemDurationSeconds >= 60 && kMDItemDurationSeconds <= 300)"
+                )
+            case "long":
+                clauses.append("kMDItemDurationSeconds > 300")
+            default:
+                break
+            }
+        }
+        return clauses.count == 1
+            ? clauses[0]
+            : "(" + clauses.joined(separator: " && ") + ")"
     }
 
     private func mdQueryEscaped(_ value: String) -> String {
@@ -1360,7 +1501,11 @@ final class SearchEngine: ObservableObject {
         case .pdfs:
             return result.source == .file
                 && (ext == "pdf" || result.contentTypes.contains("com.adobe.pdf"))
-        case .word, .excel, .powerPoint, .docs:
+        case .docs:
+            return result.source == .file
+                && isUserFacingDocumentPath(result.path)
+                && enabledDocumentExtensions().contains(ext)
+        case .word, .excel, .powerPoint:
             return result.source == .file
                 && (type.filenameExtensions.contains(ext)
                 || !Set(result.contentTypes).isDisjoint(with: Set(type.contentTypeTrees))
@@ -1371,8 +1516,70 @@ final class SearchEngine: ObservableObject {
         }
     }
 
+    private func isUserFacingDocumentPath(_ path: String) -> Bool {
+        let home = NSHomeDirectory()
+        if path.hasPrefix(home + "/Library/") {
+            return path.hasPrefix(home + "/Library/Mobile Documents/")
+                || path.hasPrefix(home + "/Library/CloudStorage/")
+        }
+        let excludedRoots = [
+            "/System/", "/Library/", "/private/", "/usr/", "/opt/",
+            "/bin/", "/sbin/", "/Applications/"
+        ]
+        if excludedRoots.contains(where: path.hasPrefix) {
+            return false
+        }
+        let excludedComponents = [
+            "/.git/", "/node_modules/", "/.build/", "/DerivedData/",
+            "/Caches/", "/__pycache__/", "/.Trash/", "/.npm/",
+            "/.cargo/", "/.rustup/", ".app/Contents/"
+        ]
+        return !excludedComponents.contains(where: path.contains)
+    }
+
+    private func enabledDocumentExtensions() -> Set<String> {
+        let optionIDs = RefinementLayoutStore.shared.layout(for: .docs)
+            .optionIDs["format"] ?? []
+        return optionIDs.reduce(into: Set<String>()) { extensions, optionID in
+            if let values = RefinementValueSets.extensions(for: optionID) {
+                extensions.formUnion(values)
+            }
+        }
+    }
+
     /// In All mode, supplement Spotlight with a direct app-folder scan so
     /// third-party apps show up even when Spotlight's app metadata misses them.
+    private func gatherPriorityFolders(tokens: [String], token: Int) {
+        guard !tokens.isEmpty else { return }
+        let type = selectedType
+        guard type == .all || type == .folders else { return }
+        let tokenClauses = tokens.map { token in
+            let escaped = mdQueryEscaped(token)
+            return "(kMDItemDisplayName == \"*\(escaped)*\"cd"
+                + " || kMDItemFSName == \"*\(escaped)*\"cd)"
+        }
+        let query = "((kMDItemContentTypeTree == \"public.folder\"cd) && "
+            + tokenClauses.joined(separator: " && ") + ")"
+        priorityMetadataQueue.async { [weak self] in
+            guard let self else { return }
+            let records = self.boundedMetadataStore.search(
+                queryString: query,
+                scopes: [self.homePath],
+                limit: 200,
+                isCancelled: self.cancellation(for: token)
+            )
+            let rows = records.map {
+                SearchResult(metadata: $0, facets: .empty)
+            }
+            DispatchQueue.main.async {
+                guard token == self.searchToken, self.selectedType == type,
+                      self.currentTokens == tokens else { return }
+                self.priorityFolderResults = rows
+                self.publishIndexResults()
+            }
+        }
+    }
+
     private func gatherAppsForAll(tokens: [String], token: Int) {
         let limit = effectiveAllFileCap + 1
         appQueue.async { [weak self] in
@@ -1500,22 +1707,30 @@ final class SearchEngine: ObservableObject {
                 RefinementMatcher.matches($0, type: .all,
                                           selection: refinementSelection)
             }
-            let filesAndApps = Array(
-                sortedForDisplay(fileRows).prefix(effectiveAllFileCap)
+            let filesAndApps = relevancePreservingPage(
+                fileRows, limit: effectiveAllFileCap
             )
             var combined: [SearchResult] = []
             combined += filesAndApps
             if allIncludedTypes.contains(.messages) {
-                combined += sortedForDisplay(refinedMessages).prefix(effectiveAllMessageCap)
+                combined += relevancePreservingPage(
+                    refinedMessages, limit: effectiveAllMessageCap
+                )
             }
             if allIncludedTypes.contains(.notes) {
-                combined += sortedForDisplay(refinedNotes).prefix(effectiveAllNoteCap)
+                combined += relevancePreservingPage(
+                    refinedNotes, limit: effectiveAllNoteCap
+                )
             }
             if allIncludedTypes.contains(.mail) {
-                combined += sortedForDisplay(refinedMail).prefix(effectiveAllMailCap)
+                combined += relevancePreservingPage(
+                    refinedMail, limit: effectiveAllMailCap
+                )
             }
             if allIncludedTypes.contains(.calendar) {
-                combined += sortedForDisplay(refinedCalendar).prefix(effectiveAllCalendarCap)
+                combined += relevancePreservingPage(
+                    refinedCalendar, limit: effectiveAllCalendarCap
+                )
             }
             combined = sortedForDisplay(combined)
             switch refinementSelection.optionID(for: "kind") {
@@ -1538,7 +1753,10 @@ final class SearchEngine: ObservableObject {
                     || (allIncludedTypes.contains(.calendar)
                         && refinedCalendar.count > effectiveAllCalendarCap)
             }
-            results = Array(combined.prefix(pageLimit))
+            let nextResults = Array(combined.prefix(pageLimit))
+            if results != nextResults {
+                results = nextResults
+            }
             isLoadingMore = false
             if activeIndexToken == 0 { isSearching = false }
         } else {
@@ -1891,6 +2109,10 @@ final class SearchEngine: ObservableObject {
     /// publish - without waiting for the user to retype.
     func refreshForPanelShow() {
         recentsStore.refresh()
+        let cutoff = Date(timeIntervalSinceNow: -30)
+        boundedBrowseCaches = boundedBrowseCaches.filter {
+            $0.value.cachedAt >= cutoff
+        }
         if selectedType.isApps || selectedType == .all {
             appStore.refresh()
         }
@@ -1968,8 +2190,77 @@ final class SearchEngine: ObservableObject {
             NSCompoundPredicate(notPredicateWithSubpredicate:
                 NSPredicate(format: "kMDItemContentTypeTree == %@", $0))
         }
+        predicates += refinementMetadataPredicates()
         return Self.combine(predicates, type: .and)
             ?? NSPredicate(format: "kMDItemFSName LIKE[cd] %@", "*")
+    }
+
+    private func refinementMetadataPredicates() -> [NSPredicate] {
+        var predicates: [NSPredicate] = []
+        if selectedType == .docs {
+            let homeLibrary = NSHomeDirectory() + "/Library/"
+            predicates.append(NSCompoundPredicate(orPredicateWithSubpredicates: [
+                NSCompoundPredicate(notPredicateWithSubpredicate:
+                    NSPredicate(format: "kMDItemPath BEGINSWITH[cd] %@", homeLibrary)),
+                NSPredicate(
+                    format: "kMDItemPath BEGINSWITH[cd] %@",
+                    homeLibrary + "Mobile Documents/"
+                ),
+                NSPredicate(
+                    format: "kMDItemPath BEGINSWITH[cd] %@",
+                    homeLibrary + "CloudStorage/"
+                )
+            ]))
+            for path in [
+                "/System/", "/Library/", "/private/", "/usr/", "/opt/",
+                "/bin/", "/sbin/", "/Applications/"
+            ] {
+                predicates.append(NSCompoundPredicate(
+                    notPredicateWithSubpredicate: NSPredicate(
+                        format: "kMDItemPath BEGINSWITH[cd] %@", path
+                    )
+                ))
+            }
+            for component in [
+                "/node_modules/", "/.git/", "/.build/", "/DerivedData/",
+                "/Caches/", "/__pycache__/", "/.Trash/", "/.npm/",
+                "/.cargo/", "/.rustup/", ".app/Contents/"
+            ] {
+                predicates.append(NSCompoundPredicate(
+                    notPredicateWithSubpredicate: NSPredicate(
+                        format: "kMDItemPath CONTAINS[cd] %@", component
+                    )
+                ))
+            }
+        }
+        if let format = refinementSelection.optionID(for: "format"),
+           let extensions = RefinementValueSets.extensions(for: format) {
+            let options = extensions.sorted().map {
+                NSPredicate(format: "kMDItemFSName ENDSWITH[cd] %@", "." + $0)
+            }
+            if let predicate = Self.combine(options, type: .or) {
+                predicates.append(predicate)
+            }
+        }
+        if let duration = refinementSelection.optionID(for: "duration") {
+            switch duration {
+            case "short":
+                predicates.append(NSPredicate(
+                    format: "kMDItemDurationSeconds < 60"
+                ))
+            case "medium":
+                predicates.append(NSPredicate(
+                    format: "kMDItemDurationSeconds >= 60 AND kMDItemDurationSeconds <= 300"
+                ))
+            case "long":
+                predicates.append(NSPredicate(
+                    format: "kMDItemDurationSeconds > 300"
+                ))
+            default:
+                break
+            }
+        }
+        return predicates
     }
 
     /// Combine predicates without ever producing a single-element compound
@@ -1988,6 +2279,17 @@ final class SearchEngine: ObservableObject {
     @objc private func queryUpdated(_ note: Notification) {
         guard let query = note.object as? NSMetadataQuery,
               query === nameQuery || query === contentQuery else { return }
+        if indexedBrowsePaused, query === nameQuery { return }
+        if note.name == .NSMetadataQueryGatheringProgress,
+           query === nameQuery {
+            let count = query.resultCount
+            let crossedPageBoundary = lastIndexedPublishCount <= pageLimit
+                && count > pageLimit
+            guard crossedPageBoundary || count - lastIndexedPublishCount >= 40 else {
+                return
+            }
+            lastIndexedPublishCount = count
+        }
         publishIndexResults()
     }
 
@@ -2000,7 +2302,13 @@ final class SearchEngine: ObservableObject {
 
         var merged: [String: SearchResult] = [:]
         let wanted = selectedType == .all ? effectiveAllFileCap + 1 : pageLimit + 1
-        let refinementReadCap = refinementSelection.isEmpty ? nameReadCap : 5_000
+        let pushedDimensions: Set<String> = [
+            "location", "photo-source", "format", "duration", "kind"
+        ]
+        let hasClientOnlyRefinement = refinementSelection.choices.keys.contains {
+            !pushedDimensions.contains($0)
+        }
+        let refinementReadCap = hasClientOnlyRefinement ? 2_500 : nameReadCap
 
         // Name matches first so they win on dedupe against content matches.
         readResults(from: nameQuery, cap: max(refinementReadCap, wanted * 2),
@@ -2008,6 +2316,11 @@ final class SearchEngine: ObservableObject {
         if contentQueryActive {
             readResults(from: contentQuery, cap: max(contentReadCap, wanted),
                         matchKind: .content, into: &merged)
+        }
+        if selectedType == .all || selectedType == .folders {
+            for folder in priorityFolderResults {
+                merged[folder.path] = folder
+            }
         }
         if selectedType == .all, isBrowsing {
             for existing in fileResults {
@@ -2049,7 +2362,12 @@ final class SearchEngine: ObservableObject {
 
         let bothDone = !nameQuery.isGathering
             && (!contentQueryActive || !contentQuery.isGathering)
-        if bothDone { isSearching = false }
+        if isBrowsing, selectedType != .all, refinementSelection.isEmpty,
+           fileResults.count > pageLimit {
+            nameQuery.stop()
+            indexedBrowsePaused = true
+        }
+        if bothDone || !fileResults.isEmpty { isSearching = false }
     }
 
     private func readResults(from query: NSMetadataQuery, cap: Int,
@@ -2060,7 +2378,8 @@ final class SearchEngine: ObservableObject {
         // Hidden categories may occupy any number of leading Spotlight rows.
         // Continue until enough accepted rows are found so customization never
         // makes valid visible results disappear behind an arbitrary pre-cap.
-        let count = selectedType == .all ? query.resultCount : min(query.resultCount, cap)
+        let scanCap = selectedType == .all ? max(cap * 8, 1_200) : cap
+        let count = min(query.resultCount, scanCap)
         var added = 0
         for index in 0..<count {
             guard let item = query.result(at: index) as? NSMetadataItem else { continue }

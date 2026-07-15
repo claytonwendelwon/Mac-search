@@ -59,6 +59,49 @@ struct RefinementFacets {
     static let empty = RefinementFacets()
 }
 
+enum RefinementValueSets {
+    static func extensions(for option: String) -> Set<String>? {
+        let groups: [String: Set<String>] = [
+            "text": ["txt", "rtf", "md"], "word": ["doc", "docx", "docm"],
+            "spreadsheet": ["xls", "xlsx", "csv", "numbers"],
+            "presentation": ["ppt", "pptx", "key"], "pages": ["pages"],
+            "markdown": ["md", "markdown"], "rtf": ["rtf", "rtfd"],
+            "odf": ["odt", "ods", "odp"],
+            "latex": ["tex", "latex", "bib"], "notebook": ["ipynb"],
+            "ebook": ["epub", "mobi", "azw", "azw3"],
+            "publishing": ["indd", "idml"],
+            "web": ["html", "htm"],
+            "data": ["json", "jsonl", "yaml", "yml", "xml"],
+            "template": ["dot", "dotx", "xlt", "xltx", "pot", "potx"],
+            "macro": ["docm", "xlsm", "pptm"], "slideshow": ["pps", "ppsx"],
+            "png": ["png"], "jpeg": ["jpg", "jpeg"], "heic": ["heic", "heif"],
+            "gif": ["gif"], "raw": ["raw", "dng", "cr2", "cr3", "nef", "arw"],
+            "svg": ["svg"], "webp": ["webp"], "tiff": ["tif", "tiff"],
+            "psd": ["psd", "psb"], "ai": ["ai"], "sketch": ["sketch"],
+            "afphoto": ["afphoto"], "exr": ["exr"],
+            "mov": ["mov", "qt"], "mp4": ["mp4"], "m4v": ["m4v"],
+            "mkv": ["mkv"], "webm": ["webm"], "avi": ["avi"],
+            "mpeg": ["mpg", "mpeg"], "mts": ["mts", "m2ts"],
+            "aiff": ["aif", "aiff"],
+            "image": Set(FileType.photos.filenameExtensions),
+            "video": Set(FileType.videos.filenameExtensions),
+            "audio": Set(FileType.audio.filenameExtensions),
+            "archive": ["zip", "rar", "7z", "tar", "gz"]
+        ]
+        return groups[option]
+    }
+
+    static func durationBounds(for option: String) -> (minimum: Double?,
+                                                        maximum: Double?)? {
+        switch option {
+        case "short": return (nil, 60)
+        case "medium": return (60, 300)
+        case "long": return (300, nil)
+        default: return nil
+        }
+    }
+}
+
 enum RefinementCatalog {
     private static let hiddenTimeRangeDimensions: Set<String> = [
         "time", "photo-date", "recent-use", "recent-open"
@@ -85,7 +128,10 @@ enum RefinementCatalog {
         case (.photos, "format"):
             optional = ["svg", "webp", "tiff", "psd", "ai", "sketch", "afphoto", "exr"]
         case (.docs, "format"):
-            optional = ["markdown", "rtf", "odf"]
+            optional = [
+                "markdown", "rtf", "odf", "latex", "notebook",
+                "ebook", "publishing", "web", "data"
+            ]
         default:
             optional = []
         }
@@ -114,7 +160,7 @@ enum RefinementCatalog {
         case .apps:
             return [recentlyUsed(), appCategory(), installedLocation()]
         case .messages:
-            return [conversation(), time(title: "Date"), messageContent()]
+            return [messageContent()]
         case .notes:
             return [folder(), modifiedDate(), account()]
         case .history:
@@ -205,23 +251,6 @@ enum RefinementCatalog {
                     options: dimension.options.filter { available.contains($0.id) }
                 )
             }
-            if dimension.id == "photo-source" {
-                let hasIndexedPhotosLibraryItems = results.contains {
-                    $0.path.searchFolded.contains(".photoslibrary/")
-                        || $0.facets.sourceApp == "photos-library"
-                }
-                let options = dimension.options.map { option in
-                    guard option.id == "photos-library" else { return option }
-                    return RefinementOption(option.id, option.title,
-                                            symbol: option.symbol,
-                                            isEnabled: hasIndexedPhotosLibraryItems)
-                }
-                return RefinementDimension(
-                    dimension.id, dimension.title, options: options,
-                    unavailableReason: hasIndexedPhotosLibraryItems
-                        ? nil : "Photos Library appears when macOS exposes indexed assets."
-                )
-            }
             guard let value = dynamicValue(for: dimension.id) else { return dimension }
             var counts: [String: (title: String, count: Int)] = [:]
             for result in results {
@@ -251,7 +280,6 @@ enum RefinementCatalog {
     private static func dynamicValue(for dimensionID: String)
         -> ((SearchResult) -> String)? {
         switch dimensionID {
-        case "conversation": return { $0.name }
         case "container": return { $0.facets.container }
         case "account": return { $0.facets.account }
         case "domain": return { $0.facets.domain }
@@ -285,8 +313,7 @@ enum RefinementCatalog {
     private static func mediaLocation() -> RefinementDimension {
         .init("location", "Location", options: [
             .init("movies", "Movies"), .init("desktop", "Desktop"),
-            .init("downloads", "Downloads"), .init("photos-library", "Photos Library"),
-            .init("projects", "Projects")
+            .init("downloads", "Downloads"), .init("projects", "Projects")
         ])
     }
 
@@ -344,14 +371,8 @@ enum RefinementCatalog {
         ])
     }
 
-    private static func conversation() -> RefinementDimension {
-        .init("conversation", "Conversation", options: [
-            .init("direct", "Direct"), .init("group", "Groups"), .init("from-me", "From Me")
-        ])
-    }
-
     private static func messageContent() -> RefinementDimension {
-        .init("content", "Content type", options: [
+        .init("content", "Message type", options: [
             .init("text", "Text"), .init("links", "Links"), .init("photos", "Photos"),
             .init("videos", "Videos"), .init("files", "Files"), .init("audio", "Voice & Audio")
         ])
@@ -398,7 +419,11 @@ enum RefinementCatalog {
             .init("text", "Text & RTF"), .init("word", "Word"),
             .init("spreadsheet", "Spreadsheets"), .init("presentation", "Presentations"),
             .init("pages", "Pages"), .init("markdown", "Markdown"),
-            .init("rtf", "RTF"), .init("odf", "OpenDocument")
+            .init("rtf", "RTF"), .init("odf", "OpenDocument"),
+            .init("latex", "LaTeX & BibTeX"),
+            .init("notebook", "Jupyter Notebooks"),
+            .init("ebook", "eBooks"), .init("publishing", "InDesign"),
+            .init("web", "HTML"), .init("data", "JSON, YAML & XML")
         ], title: "Format")
     }
 
@@ -467,8 +492,8 @@ enum RefinementCatalog {
 
     private static func photoSource() -> RefinementDimension {
         .init("photo-source", "Source", options: [
-            .init("screenshots", "Screenshots"), .init("photos-library", "Photos Library"),
-            .init("downloads", "Downloads"), .init("desktop", "Desktop")
+            .init("screenshots", "Screenshots"), .init("downloads", "Downloads"),
+            .init("desktop", "Desktop")
         ])
     }
 
@@ -556,7 +581,6 @@ enum RefinementMatcher {
             let expected = String(option.dropFirst(6))
             let value: String
             switch dimension {
-            case "conversation": value = result.name
             case "container": value = result.facets.container
             case "account": value = result.facets.account
             case "domain": value = result.facets.domain
@@ -584,10 +608,6 @@ enum RefinementMatcher {
             return result.facets.category.searchFolded.contains(option)
         case "installed-location":
             return matchesInstalledLocation(result.path, option)
-        case "conversation":
-            if option == "from-me" { return result.messageFromMe }
-            if option == "group" { return result.messageChatGUID?.contains(";+;") == true }
-            return result.messageChatGUID?.contains(";+;") != true
         case "content":
             return matchesMessageContent(result, option)
         case "container":
@@ -755,28 +775,9 @@ enum RefinementMatcher {
 
     private static func matchesFormat(_ result: SearchResult, _ option: String) -> Bool {
         let ext = result.url.pathExtension.lowercased()
-        let groups: [String: Set<String>] = [
-            "text": ["txt", "rtf", "md"], "word": ["doc", "docx", "docm"],
-            "spreadsheet": ["xls", "xlsx", "csv", "numbers"],
-            "presentation": ["ppt", "pptx", "key"], "pages": ["pages"],
-            "markdown": ["md", "markdown"], "rtf": ["rtf", "rtfd"],
-            "odf": ["odt", "ods", "odp"],
-            "template": ["dot", "dotx", "xlt", "xltx", "pot", "potx"],
-            "macro": ["docm", "xlsm", "pptm"], "slideshow": ["pps", "ppsx"],
-            "png": ["png"], "jpeg": ["jpg", "jpeg"], "heic": ["heic", "heif"],
-            "gif": ["gif"], "raw": ["raw", "dng", "cr2", "cr3", "nef", "arw"],
-            "svg": ["svg"], "webp": ["webp"], "tiff": ["tif", "tiff"],
-            "psd": ["psd", "psb"], "ai": ["ai"], "sketch": ["sketch"],
-            "afphoto": ["afphoto"], "exr": ["exr"],
-            "mov": ["mov", "qt"], "mp4": ["mp4"], "m4v": ["m4v"],
-            "mkv": ["mkv"], "avi": ["avi"], "mpeg": ["mpg", "mpeg"],
-            "mts": ["mts", "m2ts"], "aiff": ["aif", "aiff"],
-            "image": Set(FileType.photos.filenameExtensions),
-            "video": Set(FileType.videos.filenameExtensions),
-            "audio": Set(FileType.audio.filenameExtensions),
-            "archive": ["zip", "rar", "7z", "tar", "gz"]
-        ]
-        if let allowed = groups[option] { return allowed.contains(ext) }
+        if let allowed = RefinementValueSets.extensions(for: option) {
+            return allowed.contains(ext)
+        }
         return ext == option
     }
 
@@ -793,6 +794,6 @@ enum RefinementMatcher {
         guard let duration else { return false }
         if option == "short" { return duration < 60 }
         if option == "medium" { return duration >= 60 && duration <= 300 }
-        return duration > 300
+        return option == "long" && duration > 300
     }
 }

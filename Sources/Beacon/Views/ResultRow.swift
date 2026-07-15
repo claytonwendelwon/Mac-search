@@ -8,8 +8,8 @@ struct ResultRow: View {
     /// In the Recents view, show *when* the file was last used instead of
     /// kind/size - recency is the whole point there.
     var showRecency: Bool = false
-    @ObservedObject private var thumbnails = ThumbnailStore.shared
-    @ObservedObject private var favicons = FaviconStore.shared
+    @State private var loadedPreview: NSImage?
+    @State private var loadedPreviewID: String?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -56,20 +56,38 @@ struct ResultRow: View {
                       : Color.clear)
         }
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .onAppear { loadPreview() }
+        .onChange(of: result.id) { _ in
+            loadedPreview = nil
+            loadedPreviewID = nil
+            loadPreview()
+        }
     }
 
     private var thumbnailView: some View {
         let isFile = result.source == .file
         let isHistory = result.source == .history
-        let image = isFile ? thumbnails.image(for: result)
-            : isHistory ? favicons.image(for: result)
-            : result.icon
+        let image = loadedPreview ?? result.icon
         let isPreview = isFile || isHistory
         return Image(nsImage: image)
             .resizable()
             .aspectRatio(contentMode: isPreview ? .fill : .fit)
             .frame(width: isPreview ? 38 : 30, height: isPreview ? 38 : 30)
             .clipShape(RoundedRectangle(cornerRadius: isPreview ? 8 : 0, style: .continuous))
+    }
+
+    private func loadPreview() {
+        let resultID = result.id
+        loadedPreviewID = resultID
+        if result.source == .file {
+            loadedPreview = ThumbnailStore.shared.image(for: result) { image in
+                if loadedPreviewID == resultID { loadedPreview = image }
+            }
+        } else if result.source == .history {
+            loadedPreview = FaviconStore.shared.image(for: result) { image in
+                if loadedPreviewID == resultID { loadedPreview = image }
+            }
+        }
     }
 
     /// Title with matched tokens bolded. The contact/file name is the title.

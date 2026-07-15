@@ -26,3 +26,17 @@ enum PageWindow {
         (Array(rows.prefix(limit)), rows.count > limit)
     }
 }
+
+enum SearchPerformancePolicy {
+    static let pageSize = 160
+    static let initialMetadataFetch = 640
+    static let maximumMetadataFetch = 10_000
+
+    static func metadataReadLimit(pageLimit: Int,
+                                  previousLimit: Int) -> Int {
+        min(
+            maximumMetadataFetch,
+            max(initialMetadataFetch, max(previousLimit * 2, pageLimit + 1))
+        )
+    }
+}

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct GridResultCard: View {
-    enum Style {
+    enum Style: Equatable {
         case app
         case image
     }
@@ -10,7 +10,8 @@ struct GridResultCard: View {
     let isSelected: Bool
     let style: Style
 
-    @ObservedObject private var thumbnails = ThumbnailStore.shared
+    @State private var loadedThumbnail: NSImage?
+    @State private var loadedThumbnailID: String?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -41,6 +42,12 @@ struct GridResultCard: View {
                 )
         }
         .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .onAppear { loadThumbnail() }
+        .onChange(of: result.id) { _ in
+            loadedThumbnail = nil
+            loadedThumbnailID = nil
+            loadThumbnail()
+        }
     }
 
     @ViewBuilder
@@ -51,12 +58,26 @@ struct GridResultCard: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 58, height: 58)
         } else {
-            Image(nsImage: thumbnails.image(for: result))
+            Image(nsImage: loadedThumbnail ?? result.icon)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(maxWidth: .infinity)
                 .frame(height: 92)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
+
+    private func loadThumbnail() {
+        guard style == .image else { return }
+        let resultID = result.id
+        loadedThumbnailID = resultID
+        loadedThumbnail = ThumbnailStore.shared.image(
+            for: result,
+            size: CGSize(width: 160, height: 92)
+        ) { image in
+            if loadedThumbnailID == resultID {
+                loadedThumbnail = image
+            }
         }
     }
 

@@ -112,6 +112,22 @@ final class SearchStateTests: XCTestCase {
         XCTAssertEqual(first.rows.count, 80)
         XCTAssertEqual(second.rows.count, 160)
     }
+
+    func testPerformancePolicyLoadsDensePagesWithoutRescanningEveryPage() {
+        XCTAssertEqual(SearchPerformancePolicy.pageSize, 160)
+        XCTAssertEqual(
+            SearchPerformancePolicy.metadataReadLimit(
+                pageLimit: 160, previousLimit: 0
+            ),
+            640
+        )
+        XCTAssertEqual(
+            SearchPerformancePolicy.metadataReadLimit(
+                pageLimit: 320, previousLimit: 640
+            ),
+            1_280
+        )
+    }
 }
 
 final class SearchRefinementTests: XCTestCase {
@@ -179,12 +195,19 @@ final class SearchRefinementTests: XCTestCase {
 
     func testSanitizationDropsDimensionsFromAnotherFilter() {
         let selection = RefinementSelection(choices: [
-            "conversation": "group",
+            "content": "links",
             "location": "downloads"
         ])
         XCTAssertEqual(
             RefinementCatalog.sanitized(selection, for: .messages),
-            RefinementSelection(choices: ["conversation": "group"])
+            RefinementSelection(choices: ["content": "links"])
+        )
+    }
+
+    func testMessagesOnlyExposeMessageTypeRefinement() {
+        XCTAssertEqual(
+            RefinementCatalog.sidebarDimensions(for: .messages).map(\.id),
+            ["content"]
         )
     }
 
@@ -198,15 +221,13 @@ final class SearchRefinementTests: XCTestCase {
                        selection)
     }
 
-    func testPhotosLibraryFallsBackWhenAssetsAreNotIndexed() {
-        let dimensions = RefinementCatalog.enriched(
-            RefinementCatalog.dimensions(for: .photos),
-            with: []
-        )
-        let source = dimensions.first { $0.id == "photo-source" }
-        XCTAssertEqual(source?.options.first { $0.id == "photos-library" }?.isEnabled,
-                       false)
-        XCTAssertNotNil(source?.unavailableReason)
+    func testPhotosLibraryIsNotOfferedAsARefinement() {
+        let photoSource = RefinementCatalog.dimensions(for: .photos)
+            .first { $0.id == "photo-source" }
+        let videoLocation = RefinementCatalog.dimensions(for: .videos)
+            .first { $0.id == "location" }
+        XCTAssertNil(photoSource?.options.first { $0.id == "photos-library" })
+        XCTAssertNil(videoLocation?.options.first { $0.id == "photos-library" })
     }
 
     func testPSDCanBeAddedAndMatchedAsAnImageFormat() {
@@ -216,6 +237,28 @@ final class SearchRefinementTests: XCTestCase {
             type: .photos, selection: selection
         ))
         XCTAssertTrue(FileType.photos.filenameExtensions.contains("psd"))
+    }
+
+    func testDurationBoundariesRemainExact() {
+        let short = RefinementSelection(choices: ["duration": "short"])
+        let medium = RefinementSelection(choices: ["duration": "medium"])
+        let long = RefinementSelection(choices: ["duration": "long"])
+        XCTAssertTrue(RefinementMatcher.matches(
+            fileResult(path: "/tmp/a.mov", facets: durationFacets(59.99)),
+            type: .videos, selection: short
+        ))
+        XCTAssertTrue(RefinementMatcher.matches(
+            fileResult(path: "/tmp/b.mov", facets: durationFacets(60)),
+            type: .videos, selection: medium
+        ))
+        XCTAssertTrue(RefinementMatcher.matches(
+            fileResult(path: "/tmp/c.mov", facets: durationFacets(300)),
+            type: .videos, selection: medium
+        ))
+        XCTAssertTrue(RefinementMatcher.matches(
+            fileResult(path: "/tmp/d.mov", facets: durationFacets(300.01)),
+            type: .videos, selection: long
+        ))
     }
 
     func testProjectOptionsOnlyIncludeDetectedTypes() {
@@ -274,6 +317,12 @@ final class SearchRefinementTests: XCTestCase {
             facets: facets
         )
     }
+
+    private func durationFacets(_ duration: Double) -> RefinementFacets {
+        var facets = RefinementFacets()
+        facets.duration = duration
+        return facets
+    }
 }
 
 final class RefinementLayoutStoreTests: XCTestCase {
@@ -310,6 +359,22 @@ final class RefinementLayoutStoreTests: XCTestCase {
         XCTAssertEqual(
             reloaded.layout(for: .videos),
             originalVideos
+        )
+    }
+
+    func testSpecializedDocumentFormatsAreOptIn() {
+        let store = RefinementLayoutStore(defaults: defaults, defaultsKey: "layouts")
+        XCTAssertFalse(
+            store.layout(for: .docs).optionIDs["format", default: []]
+                .contains("notebook")
+        )
+        store.addOption("notebook", dimensionID: "format", for: .docs)
+        XCTAssertTrue(
+            store.layout(for: .docs).optionIDs["format", default: []]
+                .contains("notebook")
+        )
+        XCTAssertEqual(
+            RefinementValueSets.extensions(for: "notebook"), Set(["ipynb"])
         )
     }
 
@@ -351,5 +416,17 @@ final class MediaFilterTests: XCTestCase {
         XCTAssertTrue(FileType.photos.filenameExtensions.contains("heic"))
         XCTAssertTrue(FileType.audio.filenameExtensions.contains("mp3"))
         XCTAssertTrue(FileType.audio.filenameExtensions.contains("m4a"))
+    }
+
+    func testDocsAndPDFsRemainDistinctIndexScopes() {
+        XCTAssertFalse(
+            FileType.docs.contentTypeTrees.contains("public.composite-content")
+        )
+        XCTAssertFalse(FileType.docs.contentTypeTrees.contains("public.text"))
+        XCTAssertFalse(FileType.docs.filenameExtensions.contains("pdf"))
+        XCTAssertFalse(FileType.docs.filenameExtensions.contains("svg"))
+        XCTAssertFalse(FileType.docs.filenameExtensions.contains("log"))
+        XCTAssertEqual(FileType.pdfs.contentTypeTrees, ["com.adobe.pdf"])
+        XCTAssertTrue(FileType.photos.filenameExtensions.contains("svg"))
     }
 }

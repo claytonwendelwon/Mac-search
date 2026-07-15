@@ -25,7 +25,7 @@ final class RecentsStore {
     private let fm = FileManager.default
     private let windowDays = 30.0
     private let freshLaneHours = 48.0
-    private let maxVisitedFilesPerRoot = 75_000
+    private let maxVisitedFilesPerRoot = 20_000
     private var lastSearchTokens: [String] = []
     private var lastSearchMatches: [RecentFileRecord] = []
     private var hasCachedSearch = false

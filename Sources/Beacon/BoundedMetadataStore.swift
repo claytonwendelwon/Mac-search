@@ -17,8 +17,17 @@ struct BoundedMetadataRecord {
     let hasSearchableText: Bool?
 }
 
+struct BoundedMetadataNeeds {
+    var dateTaken = false
+    var duration = false
+    var authors = false
+    var tags = false
+    var searchableText = false
+}
+
 final class BoundedMetadataStore {
     func search(queryString: String, scopes: [String], limit: Int,
+                needs: BoundedMetadataNeeds = BoundedMetadataNeeds(),
                 isCancelled: (() -> Bool)? = nil) -> [BoundedMetadataRecord] {
         guard isCancelled?() != true,
               let query = MDQueryCreate(
@@ -80,18 +89,25 @@ final class BoundedMetadataStore {
             let contentTypes = MDItemCopyAttribute(
                 item, kMDItemContentTypeTree
             ) as? [String] ?? []
-            let dateTaken = MDItemCopyAttribute(
-                item, kMDItemContentCreationDate
-            ) as? Date
-            let duration = (MDItemCopyAttribute(
-                item, kMDItemDurationSeconds
-            ) as? NSNumber)?.doubleValue
-            let authors = MDItemCopyAttribute(item, kMDItemAuthors) as? [String] ?? []
-            let tags = MDItemCopyAttribute(
-                item, "kMDItemUserTags" as CFString
-            ) as? [String] ?? []
+            let dateTaken = needs.dateTaken
+                ? MDItemCopyAttribute(item, kMDItemContentCreationDate) as? Date
+                : nil
+            let duration = needs.duration
+                ? (MDItemCopyAttribute(
+                    item, kMDItemDurationSeconds
+                ) as? NSNumber)?.doubleValue
+                : nil
+            let authors = needs.authors
+                ? MDItemCopyAttribute(item, kMDItemAuthors) as? [String] ?? []
+                : []
+            let tags = needs.tags
+                ? MDItemCopyAttribute(
+                    item, "kMDItemUserTags" as CFString
+                ) as? [String] ?? []
+                : []
             let hasSearchableText: Bool?
-            if contentTypes.contains("com.adobe.pdf") {
+            if needs.searchableText,
+               contentTypes.contains("com.adobe.pdf") {
                 let text = MDItemCopyAttribute(item, kMDItemTextContent) as? String
                 hasSearchableText = text.map {
                     !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

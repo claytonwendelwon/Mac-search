@@ -62,13 +62,18 @@ private enum SearchReliabilityRunner {
         expect(!generation.isCurrent(1) && generation.isCurrent(2),
                "stale generations must be rejected")
 
-        let rows = Array(0..<200)
-        let firstPage = PageWindow.slice(rows, limit: 80)
-        let secondPage = PageWindow.slice(rows, limit: 160)
+        let rows = Array(0..<400)
+        let firstPage = PageWindow.slice(rows, limit: 160)
+        let secondPage = PageWindow.slice(rows, limit: 320)
         expect(firstPage.hasMore && secondPage.hasMore,
                "pagination must report remaining rows")
         expect(Array(secondPage.rows.prefix(firstPage.rows.count)) == firstPage.rows,
                "larger pages must preserve the existing prefix")
+        expect(SearchPerformancePolicy.pageSize == 160,
+               "search pages must remain dense")
+        expect(SearchPerformancePolicy.metadataReadLimit(
+            pageLimit: 160, previousLimit: 0
+        ) == 640, "initial metadata fetch must cover several pages")
 
         if ProcessInfo.processInfo.environment["VERIFY_INSTALLED_APPS"] == "1" {
             let installed = AppStore().search(tokens: SearchText.tokens("beac"), limit: 20)

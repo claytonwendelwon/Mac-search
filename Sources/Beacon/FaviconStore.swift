@@ -6,12 +6,13 @@ import Foundation
 /// Intentionally avoids third-party favicon services: when a row is visible, we
 /// ask that same site directly (common favicon paths, then root HTML icon
 /// links) and fall back to the generic globe if nothing decodes.
-final class FaviconStore: ObservableObject {
+final class FaviconStore {
     static let shared = FaviconStore()
 
-    @Published private(set) var images: [String: NSImage] = [:]
+    private var images: [String: NSImage] = [:]
     private var inFlight = Set<String>()
     private var misses = Set<String>()
+    private var completions: [String: [(NSImage) -> Void]] = [:]
     private let session: URLSession
 
     private init() {
@@ -22,13 +23,19 @@ final class FaviconStore: ObservableObject {
         self.session = URLSession(configuration: config)
     }
 
-    func image(for result: SearchResult) -> NSImage {
+    func image(for result: SearchResult,
+               completion: ((NSImage) -> Void)? = nil) -> NSImage {
         guard result.source == .history, let pageURL = URL(string: result.path),
               let host = normalizedHost(pageURL.host) else {
             return result.icon
         }
         if let image = images[host] { return image }
-        if !misses.contains(host) { request(host: host, pageURL: pageURL) }
+        if !misses.contains(host) {
+            if let completion {
+                completions[host, default: []].append(completion)
+            }
+            request(host: host, pageURL: pageURL)
+        }
         return result.icon
     }
 
@@ -42,8 +49,11 @@ final class FaviconStore: ObservableObject {
                 self.inFlight.remove(host)
                 if let image {
                     self.images[host] = image
+                    let callbacks = self.completions.removeValue(forKey: host) ?? []
+                    callbacks.forEach { $0(image) }
                 } else {
                     self.misses.insert(host)
+                    self.completions.removeValue(forKey: host)
                 }
             }
         }

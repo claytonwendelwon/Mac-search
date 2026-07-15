@@ -1093,6 +1093,16 @@ struct SearchView: View {
             } else if !engine.results.isEmpty {
                 // Clipboard mode shows recent history even with an empty query.
                 resultsList
+            } else if engine.queryText.trimmingCharacters(in: .whitespaces).isEmpty,
+                      engine.isSearching {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading \(engine.selectedType.title.lowercased())…")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if engine.queryText.trimmingCharacters(in: .whitespaces).isEmpty {
                 emptyState(text: emptyTitle, subtitle: emptySubtitle)
             } else if !engine.isSearching {
@@ -1453,9 +1463,7 @@ struct SearchView: View {
             }
             .onChange(of: selectedIndex) { newValue in
                 if engine.results.indices.contains(newValue) {
-                    withAnimation(.easeOut(duration: 0.1)) {
-                        proxy.scrollTo(engine.results[newValue].id, anchor: .center)
-                    }
+                    proxy.scrollTo(engine.results[newValue].id, anchor: .center)
                 }
             }
         }
@@ -1515,9 +1523,7 @@ struct SearchView: View {
             }
             .onChange(of: selectedIndex) { newValue in
                 if engine.results.indices.contains(newValue) {
-                    withAnimation(.easeOut(duration: 0.1)) {
-                        proxy.scrollTo(engine.results[newValue].id, anchor: .center)
-                    }
+                    proxy.scrollTo(engine.results[newValue].id, anchor: .center)
                 }
             }
         }

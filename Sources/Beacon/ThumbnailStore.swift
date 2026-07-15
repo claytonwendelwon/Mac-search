@@ -6,17 +6,23 @@ import QuickLookThumbnailing
 /// file search so saved images, PDFs, and videos show an actual preview instead
 /// of a generic document icon. Falls back to NSWorkspace icons when Quick Look
 /// cannot produce a thumbnail.
-final class ThumbnailStore: ObservableObject {
+final class ThumbnailStore {
     static let shared = ThumbnailStore()
 
-    @Published private(set) var images: [String: NSImage] = [:]
+    private var images: [String: NSImage] = [:]
     private var inFlight = Set<String>()
+    private var completions: [String: [(NSImage) -> Void]] = [:]
 
     private init() {}
 
-    func image(for result: SearchResult, size: CGSize = CGSize(width: 44, height: 44)) -> NSImage {
+    func image(for result: SearchResult,
+               size: CGSize = CGSize(width: 44, height: 44),
+               completion: ((NSImage) -> Void)? = nil) -> NSImage {
         guard result.source == .file else { return result.icon }
         if let image = images[result.path] { return image }
+        if let completion {
+            completions[result.path, default: []].append(completion)
+        }
         request(path: result.path, size: size, fallback: result.icon)
         return result.icon
     }
@@ -36,7 +42,10 @@ final class ThumbnailStore: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.inFlight.remove(path)
-                self.images[path] = thumbnail?.nsImage ?? fallback
+                let image = thumbnail?.nsImage ?? fallback
+                self.images[path] = image
+                let callbacks = self.completions.removeValue(forKey: path) ?? []
+                callbacks.forEach { $0(image) }
             }
         }
     }
