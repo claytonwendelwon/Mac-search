@@ -45,9 +45,22 @@ final class NotesStore {
             return
         }
         load()
+        if state == .ready { loadedAt = Date() }
     }
 
     func retry() {
+        state = .idle
+        ensureLoaded()
+    }
+
+    private var loadedAt: Date?
+
+    /// Reload notes edited or created mid-session. Full reload (the gzip +
+    /// protobuf walk makes incremental reads impractical), throttled so panel
+    /// shows stay cheap.
+    func refreshIfStale(olderThan ttl: TimeInterval = 300) {
+        guard state == .ready else { return }
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < ttl { return }
         state = .idle
         ensureLoaded()
     }
@@ -163,7 +176,9 @@ final class NotesStore {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             Log.write("NotesStore: prepare failed err=\(String(cString: sqlite3_errmsg(db)))")
-            state = .needsFullDiskAccess
+            // The DB opened, so access is fine — a prepare failure means the
+            // Notes schema changed (macOS update), not missing permissions.
+            state = .unavailable
             return
         }
         defer { sqlite3_finalize(stmt) }

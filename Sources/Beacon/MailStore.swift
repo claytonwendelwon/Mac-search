@@ -94,6 +94,14 @@ final class MailStore {
         ensureLoaded()
     }
 
+    /// Drop the last-search memo so a repeated query re-hits the live index.
+    /// Mail re-queries the Envelope Index per search, so this is all a panel
+    /// show needs to surface mail that arrived mid-session.
+    func invalidateSearchCache() {
+        lastTokens = []
+        lastMatches = []
+    }
+
     func search(tokens: [String], limit: Int = 80,
                 gmailOnly: Bool = false,
                 isCancelled: (() -> Bool)? = nil) -> [MailRecord] {
@@ -221,7 +229,16 @@ final class MailStore {
             }
             state = .unavailable
         } catch {
-            state = .needsFullDiskAccess
+            // A machine that never used Mail.app has no ~/Library/Mail at all;
+            // that's "no mail here", not a permission problem. Only a real
+            // access denial should send the user to the FDA pane.
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain,
+               nsError.code == NSFileReadNoSuchFileError {
+                state = .unavailable
+            } else {
+                state = .needsFullDiskAccess
+            }
             Log.write("MailStore: cannot inspect Mail directory \(error.localizedDescription)")
         }
         return nil

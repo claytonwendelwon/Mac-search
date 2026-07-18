@@ -56,6 +56,16 @@ private enum SearchReliabilityRunner {
                == ["Beacon", "Beacon Beta"],
                "a cancelled refresh must not poison the next scan")
 
+        let insider = root
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("Insider Logos", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: insider, withIntermediateDirectories: true
+        )
+        let folderRows = FolderStore(home: root).search(tokens: ["insider"])
+        expect(folderRows.first?.name == "Insider Logos",
+               "exact folder names must be found without Spotlight")
+
         let generation = SearchGeneration()
         generation.set(1)
         generation.set(2)
@@ -74,6 +84,19 @@ private enum SearchReliabilityRunner {
         expect(SearchPerformancePolicy.metadataReadLimit(
             pageLimit: 160, previousLimit: 0
         ) == 640, "initial metadata fetch must cover several pages")
+
+        if let folderQuery = ProcessInfo.processInfo.environment[
+            "VERIFY_FOLDER_QUERY"
+        ] {
+            let tokens = SearchText.tokens(folderQuery)
+            let matches = FolderStore().search(tokens: tokens)
+            print(
+                "Folder verification matches:",
+                matches.map(\.path).joined(separator: "\n")
+            )
+            expect(!matches.isEmpty,
+                   "live folder index must find \(folderQuery)")
+        }
 
         if ProcessInfo.processInfo.environment["VERIFY_INSTALLED_APPS"] == "1" {
             let installed = AppStore().search(tokens: SearchText.tokens("beac"), limit: 20)

@@ -59,9 +59,22 @@ final class BrowserHistoryStore {
     func ensureLoaded() {
         guard state == .idle else { return }
         load()
+        if state == .ready { loadedAt = Date() }
     }
 
     func retry() {
+        state = .idle
+        ensureLoaded()
+    }
+
+    private var loadedAt: Date?
+
+    /// Reload browsing history so pages visited mid-session are findable.
+    /// Full reload (the stores snapshot whole DB files), throttled so panel
+    /// shows stay cheap.
+    func refreshIfStale(olderThan ttl: TimeInterval = 300) {
+        guard state == .ready else { return }
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < ttl { return }
         state = .idle
         ensureLoaded()
     }

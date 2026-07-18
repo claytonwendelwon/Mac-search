@@ -9,18 +9,39 @@ import Contacts
 final class ContactResolver {
     enum State { case idle, loading, ready, denied }
 
-    private(set) var state: State = .idle
+    /// Guards state and both maps: `requestAccess`'s completion (and thus
+    /// `load`) can run on an arbitrary Contacts-framework thread while
+    /// `name(for:)` is called from the engine's message queue.
+    private let lock = NSLock()
+    private var _state: State = .idle
     private var phoneMap: [String: String] = [:]  // last 10 digits -> name
     private var emailMap: [String: String] = [:]  // lowercased email -> name
+
+    var state: State {
+        lock.lock()
+        defer { lock.unlock() }
+        return _state
+    }
 
     /// True once contacts are fully loaded, so lookups are complete and stable
     /// (callers may cache the results).
     var isReady: Bool { state == .ready }
 
-    /// Load contacts once. Requests access the first time; safe to call repeatedly.
+    /// Load contacts once. Requests access the first time; safe to call
+    /// repeatedly. A previously denied resolver re-checks authorization, so
+    /// granting access in System Settings works without a relaunch.
     func ensureLoaded() {
-        guard state == .idle else { return }
-        state = .loading
+        lock.lock()
+        switch _state {
+        case .idle:
+            _state = .loading
+        case .denied where CNContactStore.authorizationStatus(for: .contacts) == .authorized:
+            _state = .loading
+        default:
+            lock.unlock()
+            return
+        }
+        lock.unlock()
 
         let store = CNContactStore()
         switch CNContactStore.authorizationStatus(for: .contacts) {
@@ -29,21 +50,30 @@ final class ContactResolver {
         case .notDetermined:
             store.requestAccess(for: .contacts) { [weak self] granted, _ in
                 guard let self else { return }
-                if granted { self.load(store) } else { self.state = .denied }
+                if granted { self.load(store) } else { self.setState(.denied) }
             }
         default:
-            state = .denied
+            setState(.denied)
         }
     }
 
     func name(for handle: String) -> String? {
-        guard state == .ready, !handle.isEmpty else { return nil }
+        guard !handle.isEmpty else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        guard _state == .ready else { return nil }
         if handle.contains("@") {
             return emailMap[handle.lowercased()]
         }
         let digits = handle.filter { $0.isNumber }
         guard digits.count >= 7 else { return nil }
         return phoneMap[String(digits.suffix(10))]
+    }
+
+    private func setState(_ newState: State) {
+        lock.lock()
+        _state = newState
+        lock.unlock()
     }
 
     private func load(_ store: CNContactStore) {
@@ -68,14 +98,16 @@ final class ContactResolver {
                     email[(address.value as String).lowercased()] = name
                 }
             }
-            // Publish maps before flipping state so readers see a complete table.
+            // Publish maps and state together so readers see a complete table.
+            lock.lock()
             phoneMap = phone
             emailMap = email
-            state = .ready
+            _state = .ready
+            lock.unlock()
             Log.write("ContactResolver: loaded phones=\(phone.count) emails=\(email.count)")
         } catch {
             Log.write("ContactResolver: load failed \(error.localizedDescription)")
-            state = .denied
+            setState(.denied)
         }
     }
 

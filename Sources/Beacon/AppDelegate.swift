@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Carbon.HIToolbox
+import Quartz
 import QuartzCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -96,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         let hosting = NSHostingView(rootView: root)
+        hosting.sizingOptions = []
         hosting.frame = panel.contentView?.bounds ?? .zero
         hosting.autoresizingMask = [.width, .height]
         hosting.wantsLayer = true
@@ -103,6 +105,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hosting.layer?.cornerCurve = .continuous
         hosting.layer?.masksToBounds = true
         panel.contentView = hosting
+        panel.contentMinSize = NSSize(width: panelWidth, height: panelHeight)
+        panel.contentMaxSize = NSSize(
+            width: panelWidth + refinementSidebarWidth,
+            height: panelHeight
+        )
+        panel.setContentSize(
+            NSSize(width: initialWidth, height: panelHeight)
+        )
         panel.delegate = self
         self.panel = panel
     }
@@ -155,6 +165,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func hidePanel() {
+        // Take any open Quick Look preview down with the panel so it can't
+        // linger over other apps once the search UI is gone.
+        if QLPreviewPanel.sharedPreviewPanelExists(),
+           QLPreviewPanel.shared().isVisible {
+            QLPreviewPanel.shared().orderOut(nil)
+        }
         panel?.orderOut(nil)
     }
 
@@ -179,15 +195,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSWindowDelegate {
     // Dismiss when the user clicks away / switches apps.
     func windowDidResignKey(_ notification: Notification) {
-        if FilterLayoutStore.shared.isEditing {
-            FilterLayoutStore.shared.cancelMove()
-            FilterLayoutStore.shared.isEditing = false
-            panel?.isMovableByWindowBackground = true
+        // The new key window isn't set yet inside this notification, so decide
+        // on the next runloop tick. Key moving to one of our own windows —
+        // the Quick Look panel or an edit popover — must not dismiss the
+        // search panel or cancel filter editing; only leaving the app should.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let panel = self.panel else { return }
+            if panel.isKeyWindow { return }
+            if let keyWindow = NSApp.keyWindow {
+                if keyWindow is QLPreviewPanel { return }
+                var ancestor: NSWindow? = keyWindow
+                while let current = ancestor {
+                    if current === panel { return }
+                    ancestor = current.parent
+                }
+            }
+            if FilterLayoutStore.shared.isEditing {
+                FilterLayoutStore.shared.cancelMove()
+                FilterLayoutStore.shared.isEditing = false
+                panel.isMovableByWindowBackground = true
+            }
+            // First launch must remain discoverable even if Finder or the DMG
+            // takes focus during relaunch. Escape still closes it, and normal
+            // click-away behavior begins after the welcome hint is dismissed.
+            guard UserDefaults.standard.bool(forKey: "hasSeenWelcome") else { return }
+            self.hidePanel()
         }
-        // First launch must remain discoverable even if Finder or the DMG takes
-        // focus during relaunch. Escape still closes it, and normal click-away
-        // behavior begins after the welcome hint is dismissed.
-        guard UserDefaults.standard.bool(forKey: "hasSeenWelcome") else { return }
-        hidePanel()
     }
 }

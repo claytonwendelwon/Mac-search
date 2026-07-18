@@ -86,7 +86,14 @@ struct SearchView: View {
             selectedIndex = engine.results.isEmpty ? 0 : min(selectedIndex, engine.results.count - 1)
             selectedIndex = max(0, selectedIndex)
         }
+        .onChange(of: engine.queryText) { _ in
+            // A new query is a new result set; carrying the old highlight
+            // position over means a fast Return opens the wrong item.
+            selectedIndex = 0
+        }
         .onChange(of: engine.selectedType) { _ in
+            ThumbnailStore.shared.cancelAll()
+            FaviconStore.shared.cancelAll()
             selectedIndex = 0
             activePreview = nil
         }
@@ -659,11 +666,13 @@ struct SearchView: View {
                         )
                         .opacity(draggedFilter == type ? 0.001 : 1)
                         .background {
-                            GeometryReader { proxy in
-                                Color.clear.preference(
-                                    key: FilterFramePreferenceKey.self,
-                                    value: [type: proxy.frame(in: .named("filterRow"))]
-                                )
+                            if filterLayout.isEditing {
+                                GeometryReader { proxy in
+                                    Color.clear.preference(
+                                        key: FilterFramePreferenceKey.self,
+                                        value: [type: proxy.frame(in: .named("filterRow"))]
+                                    )
+                                }
                             }
                         }
                         .highPriorityGesture(
@@ -1091,14 +1100,24 @@ struct SearchView: View {
             } else if engine.selectedType.isCalendar && engine.calendarPermission != .granted {
                 calendarPermissionPrompt
             } else if !engine.results.isEmpty {
-                // Clipboard mode shows recent history even with an empty query.
                 resultsList
-            } else if engine.queryText.trimmingCharacters(in: .whitespaces).isEmpty,
-                      engine.isSearching {
+                    .opacity(engine.isShowingStaleResults ? 0.58 : 1)
+                    .overlay(alignment: .topTrailing) {
+                        if engine.isShowingStaleResults {
+                            ProgressView()
+                                .controlSize(.small)
+                                .padding(12)
+                        }
+                    }
+            } else if engine.isSearching {
                 VStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Loading \(engine.selectedType.title.lowercased())…")
+                    Text(
+                        engine.queryText.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? "Loading \(engine.selectedType.title.lowercased())…"
+                            : "Searching \(engine.selectedType.title.lowercased())…"
+                    )
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -1402,14 +1421,17 @@ struct SearchView: View {
     }
 
     private var resultsList: some View {
+        // Photos deliberately uses the row list like Videos: it stays smooth
+        // at thousands of items and its 44pt thumbnails are far cheaper to
+        // generate than grid cards. Only Apps keep the grid.
         Group {
-            if engine.selectedType.isApps || engine.selectedType == .photos {
+            if engine.selectedType.isApps {
                 gridResultsList
             } else {
                 rowResultsList
             }
         }
-        .id(engine.selectedType)
+        .id(engine.selectedType.isApps ? "grid-results" : "list-results")
     }
 
     private var rowResultsList: some View {

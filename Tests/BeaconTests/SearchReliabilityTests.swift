@@ -430,3 +430,53 @@ final class MediaFilterTests: XCTestCase {
         XCTAssertTrue(FileType.photos.filenameExtensions.contains("svg"))
     }
 }
+
+final class RecentsStoreTests: XCTestCase {
+    func testFreshDownloadIsAvailableBeforeSpotlightIndexesIt() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let downloads = root.appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: downloads, withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let image = downloads.appendingPathComponent("brand-new.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: image)
+
+        let rows = RecentsStore(home: root.path).freshItems()
+        let record = try XCTUnwrap(rows.first { $0.path == image.path })
+        XCTAssertTrue(record.contentTypes.contains("public.image"))
+    }
+}
+
+final class FolderStoreTests: XCTestCase {
+    func testExactFolderNameIsFoundWithoutSpotlight() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let target = root
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("Insider Logos", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: target, withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let rows = FolderStore(home: root).search(tokens: ["insider"])
+
+        XCTAssertEqual(rows.first?.name, "Insider Logos")
+    }
+
+    func testFolderSearchDoesNotReturnMatchingFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root, withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("insider.txt")
+        try Data().write(to: file)
+
+        XCTAssertTrue(FolderStore(home: root).search(tokens: ["insider"]).isEmpty)
+    }
+}

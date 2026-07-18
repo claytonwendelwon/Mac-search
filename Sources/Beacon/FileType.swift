@@ -234,7 +234,8 @@ enum FileType: String, CaseIterable, Identifiable {
         case .videos:
             return [
                 "mov", "mp4", "m4v", "avi", "mkv", "webm", "mpg", "mpeg",
-                "mts", "m2ts", "3gp", "3g2", "ogv", "dv", "vob", "qt", "hevc"
+                "mts", "m2ts", "3gp", "3g2", "ogv", "dv", "vob", "qt",
+                "wmv", "flv", "divx", "asf", "mxf"
             ]
         default:
             return []

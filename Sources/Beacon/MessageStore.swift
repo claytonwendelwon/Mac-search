@@ -64,6 +64,9 @@ final class MessageStore {
     private var cache: [MessageRecord] = []
     private var lastSearchTokens: [String] = []
     private var lastSearchMatches: [MessageRecord] = []
+    private var lastSearchUsedResolver = false
+    private var loadedAt: Date?
+    private var maxLoadedRowID: Int64 = 0
 
     private let dbPath = NSHomeDirectory() + "/Library/Messages/chat.db"
     // Effectively "everything" - a safety ceiling so a pathological history
@@ -71,6 +74,30 @@ final class MessageStore {
     private let loadCap = 1_000_000
 
     var needsFullDiskAccess: Bool { state == .needsFullDiskAccess }
+
+    func probeAccess() -> Bool {
+        guard FileManager.default.fileExists(atPath: dbPath) else {
+            state = .unavailable
+            return false
+        }
+        var db: OpaquePointer?
+        let encoded = dbPath.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed
+        ) ?? dbPath
+        let rc = sqlite3_open_v2(
+            "file:\(encoded)?mode=ro", &db,
+            SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil
+        )
+        if db != nil { sqlite3_close(db) }
+        if rc == SQLITE_OK {
+            if state == .needsFullDiskAccess { state = .idle }
+            return true
+        }
+        // A transient open failure must not demote a store that's already
+        // serving a warm cache.
+        if state != .ready { state = .needsFullDiskAccess }
+        return false
+    }
 
     /// Load the DB once. Safe to call repeatedly; only does work when idle.
     func ensureLoaded() {
@@ -86,6 +113,16 @@ final class MessageStore {
     func retry() {
         state = .idle
         ensureLoaded()
+    }
+
+    /// Pull in messages that arrived since the last load, so texts received
+    /// mid-session are findable without relaunching. Incremental
+    /// (`WHERE ROWID > max loaded`) and throttled, so it's cheap enough to run
+    /// on every panel show.
+    func refreshIfStale(olderThan ttl: TimeInterval = 60) {
+        guard state == .ready else { return }
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < ttl { return }
+        load(sinceRowID: maxLoadedRowID)
     }
 
     /// Search by message text, raw handle, or (when `nameResolver` is given)
@@ -104,7 +141,11 @@ final class MessageStore {
             return []
         }
         if tokens.isEmpty { return Array(cache.prefix(limit)) }
-        if tokens == lastSearchTokens {
+        // A cached result computed before the contact resolver was ready must
+        // not be reused once names become resolvable — "Mom" should start
+        // matching Mom's messages the moment contacts finish loading.
+        if tokens == lastSearchTokens,
+           (nameResolver != nil) == lastSearchUsedResolver {
             return Array(lastSearchMatches.prefix(limit))
         }
         var out: [(record: MessageRecord, quality: SearchText.MatchQuality)] = []
@@ -136,6 +177,7 @@ final class MessageStore {
             .map(\.record)
         lastSearchTokens = tokens
         lastSearchMatches = matches
+        lastSearchUsedResolver = nameResolver != nil
         let results = Array(matches.prefix(limit))
         Log.write("MessageStore: search tokens=\(tokens) cache=\(cache.count) matched=\(out.count) returned=\(results.count)")
         return results
@@ -170,7 +212,7 @@ final class MessageStore {
 
     // MARK: - Loading
 
-    private func load() {
+    private func load(sinceRowID: Int64? = nil) {
         var db: OpaquePointer?
         defer { if db != nil { sqlite3_close(db) } }
 
@@ -183,6 +225,9 @@ final class MessageStore {
         guard openRC == SQLITE_OK else {
             let msg = db.map { String(cString: sqlite3_errmsg($0)) } ?? "nil db"
             Log.write("MessageStore: open failed rc=\(openRC) err=\(msg)")
+            // An incremental refresh failing (e.g. transient lock) must not
+            // demote a working store; keep serving the warm cache.
+            guard sinceRowID == nil else { return }
             // Typically "authorization denied" => Full Disk Access not granted.
             state = .needsFullDiskAccess
             return
@@ -232,6 +277,8 @@ final class MessageStore {
               )
               """
             : "0"
+        // `sinceRowID` is our own Int64, not user input — safe to interpolate.
+        let whereClause = sinceRowID.map { "WHERE m.ROWID > \($0)" } ?? ""
         let sql = """
         SELECT m.ROWID, m.date, m.is_from_me, COALESCE(h.id, ''),
                m.text, \(attributedBodyExpression),
@@ -251,6 +298,7 @@ final class MessageStore {
             ORDER BY cmj.chat_id
             LIMIT 1
         )
+        \(whereClause)
         ORDER BY m.date DESC
         LIMIT \(loadCap);
         """
@@ -260,7 +308,11 @@ final class MessageStore {
         guard prepRC == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
             Log.write("MessageStore: prepare failed rc=\(prepRC) err=\(msg)")
-            state = .needsFullDiskAccess
+            guard sinceRowID == nil else { return }
+            // The DB opened, so access is fine — a prepare failure means the
+            // schema changed (macOS update). Reporting it as a permission
+            // problem would send users to grant FDA they already have.
+            state = .unavailable
             return
         }
         defer { sqlite3_finalize(stmt) }
@@ -319,11 +371,23 @@ final class MessageStore {
                                                   + " " + chatName).searchFolded))
         }
 
-        cache = records
+        if sinceRowID != nil {
+            loadedAt = Date()
+            guard !records.isEmpty else { return }
+            // New rows are the newest; prepend to keep newest-first order.
+            cache = records + cache
+            if cache.count > loadCap {
+                cache.removeLast(cache.count - loadCap)
+            }
+        } else {
+            cache = records
+            state = .ready
+            loadedAt = Date()
+        }
+        maxLoadedRowID = max(maxLoadedRowID, records.map(\.rowid).max() ?? 0)
         lastSearchTokens = []
         lastSearchMatches = []
-        state = .ready
-        Log.write("MessageStore: loaded scanned=\(scanned) textCol=\(fromTextCol) blob=\(fromBlob) dropped=\(dropped) cache=\(records.count)")
+        Log.write("MessageStore: loaded scanned=\(scanned) textCol=\(fromTextCol) blob=\(fromBlob) dropped=\(dropped) cache=\(cache.count) incremental=\(sinceRowID != nil)")
     }
 
     // MARK: - Helpers

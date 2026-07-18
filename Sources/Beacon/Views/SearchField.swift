@@ -136,6 +136,14 @@ final class CommandTextField: NSTextField {
     weak var commandHandler: CommandTextFieldHandler?
     private var commandMonitor: Any?
 
+    /// ⌘C with a text selection in the field must copy that text, not the
+    /// highlighted result — defer to the field editor's normal copy.
+    private func shouldDeferToFieldEditor(_ chars: String) -> Bool {
+        guard chars.lowercased() == "c" else { return false }
+        guard let editor = currentEditor() else { return false }
+        return editor.selectedRange.length > 0
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let commandMonitor {
@@ -150,6 +158,7 @@ final class CommandTextField: NSTextField {
                   window?.firstResponder === editor,
                   event.modifierFlags.contains(.command),
                   let chars = event.charactersIgnoringModifiers,
+                  !shouldDeferToFieldEditor(chars),
                   commandHandler?.handleCommandKey(chars) == true else {
                 return event
             }
@@ -166,6 +175,7 @@ final class CommandTextField: NSTextField {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command),
            let chars = event.charactersIgnoringModifiers,
+           !shouldDeferToFieldEditor(chars),
            commandHandler?.handleCommandKey(chars) == true {
             return true
         }
@@ -175,6 +185,7 @@ final class CommandTextField: NSTextField {
     override func keyDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command),
            let chars = event.charactersIgnoringModifiers,
+           !shouldDeferToFieldEditor(chars),
            commandHandler?.handleCommandKey(chars) == true {
             return
         }

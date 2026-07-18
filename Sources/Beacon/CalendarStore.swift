@@ -23,6 +23,9 @@ struct CalendarRecord {
 /// Beacon only caches lightweight event metadata locally in memory.
 final class CalendarStore {
     private let eventStore = EKEventStore()
+    /// Guards cache/lastTokens/lastMatches: search() runs on the engine's
+    /// calendar queue while refresh() is called from the main thread.
+    private let lock = NSLock()
     private var cache: [CalendarRecord]?
     private var lastTokens: [String] = []
     private var lastMatches: [CalendarRecord] = []
@@ -53,6 +56,8 @@ final class CalendarStore {
     }
 
     func refresh() {
+        lock.lock()
+        defer { lock.unlock() }
         cache = nil
         lastTokens = []
         lastMatches = []
@@ -61,8 +66,12 @@ final class CalendarStore {
     func search(tokens: [String], limit: Int = 80,
                 isCancelled: (() -> Bool)? = nil) -> [CalendarRecord] {
         guard permissionState == .granted else { return [] }
-        if tokens == lastTokens, !lastMatches.isEmpty {
-            return Array(lastMatches.prefix(limit))
+        lock.lock()
+        let cachedMatches = (tokens == lastTokens && !lastMatches.isEmpty)
+            ? lastMatches : nil
+        lock.unlock()
+        if let cachedMatches {
+            return Array(cachedMatches.prefix(limit))
         }
         let records = loadEvents()
 
@@ -80,39 +89,64 @@ final class CalendarStore {
             if $0.1 != $1.1 { return $0.1 < $1.1 }
             return Self.recencyScore($0.0) < Self.recencyScore($1.0)
         }.map(\.0)
+        lock.lock()
         lastTokens = tokens
         lastMatches = ranked
+        lock.unlock()
         return Array(ranked.prefix(limit))
     }
 
     private func loadEvents() -> [CalendarRecord] {
-        if let cache { return cache }
-        let start = Calendar.current.date(byAdding: .year, value: -10, to: Date())!
-        let end = Calendar.current.date(byAdding: .year, value: 5, to: Date())!
-        let predicate = eventStore.predicateForEvents(
-            withStart: start,
-            end: end,
-            calendars: nil
-        )
-        let records = eventStore.events(matching: predicate).map { event in
-            let title = event.title?.isEmpty == false ? event.title! : "(Untitled Event)"
-            let location = event.location ?? ""
-            let notes = event.notes ?? ""
-            let identifier = "\(event.calendarItemIdentifier):\(event.startDate.timeIntervalSince1970)"
-            return CalendarRecord(
-                identifier: identifier,
-                title: title,
-                calendarName: event.calendar.title,
-                location: location,
-                notes: notes,
-                start: event.startDate,
-                end: event.endDate,
-                isAllDay: event.isAllDay,
-                folded: [title, event.calendar.title, location, notes]
-                    .joined(separator: " ").searchFolded
-            )
+        lock.lock()
+        if let cache {
+            lock.unlock()
+            return cache
         }
+        lock.unlock()
+
+        // EventKit silently clips event predicates to ~4 years (measured from
+        // the start date), so a single -10y..+5y query returns only the oldest
+        // slice and no recent or upcoming events. Query in 3-year windows and
+        // dedupe occurrences that straddle window edges.
+        let calendar = Calendar.current
+        let now = Date()
+        var records: [CalendarRecord] = []
+        var seen = Set<String>()
+        for offset in stride(from: -10, through: 4, by: 3) {
+            guard let start = calendar.date(byAdding: .year, value: offset, to: now),
+                  let end = calendar.date(
+                      byAdding: .year, value: min(offset + 3, 5), to: now
+                  ) else { continue }
+            let predicate = eventStore.predicateForEvents(
+                withStart: start,
+                end: end,
+                calendars: nil
+            )
+            for event in eventStore.events(matching: predicate) {
+                let identifier = "\(event.calendarItemIdentifier):"
+                    + "\(event.startDate.timeIntervalSince1970)"
+                guard seen.insert(identifier).inserted else { continue }
+                let title = event.title?.isEmpty == false
+                    ? event.title! : "(Untitled Event)"
+                let location = event.location ?? ""
+                let notes = event.notes ?? ""
+                records.append(CalendarRecord(
+                    identifier: identifier,
+                    title: title,
+                    calendarName: event.calendar.title,
+                    location: location,
+                    notes: notes,
+                    start: event.startDate,
+                    end: event.endDate,
+                    isAllDay: event.isAllDay,
+                    folded: [title, event.calendar.title, location, notes]
+                        .joined(separator: " ").searchFolded
+                ))
+            }
+        }
+        lock.lock()
         cache = records
+        lock.unlock()
         Log.write("CalendarStore: loaded events=\(records.count)")
         return records
     }

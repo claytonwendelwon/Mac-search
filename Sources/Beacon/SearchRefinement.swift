@@ -57,6 +57,31 @@ struct RefinementFacets {
     var isProject = false
 
     static let empty = RefinementFacets()
+
+    /// Field-wise union of two facet sets describing the same item. Values
+    /// already present win; the other side only fills gaps. Lets a metadata-
+    /// rich Spotlight row and a metadata-poor fast-lane row (FolderStore,
+    /// fresh recents) combine instead of one clobbering the other.
+    func merged(with other: RefinementFacets) -> RefinementFacets {
+        var merged = self
+        if merged.account.isEmpty { merged.account = other.account }
+        if merged.container.isEmpty { merged.container = other.container }
+        if merged.category.isEmpty { merged.category = other.category }
+        if merged.contentCategory.isEmpty {
+            merged.contentCategory = other.contentCategory
+        }
+        if merged.activity.isEmpty { merged.activity = other.activity }
+        if merged.domain.isEmpty { merged.domain = other.domain }
+        if merged.artist.isEmpty { merged.artist = other.artist }
+        if merged.sourceApp.isEmpty { merged.sourceApp = other.sourceApp }
+        if merged.duration == nil { merged.duration = other.duration }
+        if merged.dateTaken == nil { merged.dateTaken = other.dateTaken }
+        merged.isUnread = merged.isUnread || other.isUnread
+        merged.isFlagged = merged.isFlagged || other.isFlagged
+        merged.isFavorite = merged.isFavorite || other.isFavorite
+        merged.isProject = merged.isProject || other.isProject
+        return merged
+    }
 }
 
 enum RefinementValueSets {
@@ -677,10 +702,21 @@ enum RefinementMatcher {
         return prefixes.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 
+    /// The user's custom screenshot folder, resolved once per launch. Files
+    /// there rarely keep the "Screenshot" name prefix after renaming, so the
+    /// location itself must count as a match.
+    private static let configuredScreenshotRoot: String? =
+        RecentsStore.configuredScreenshotLocation()
+            .map { ($0 as NSString).expandingTildeInPath }
+
     private static func matchesScreenshot(_ path: String) -> Bool {
         let name = URL(fileURLWithPath: path).lastPathComponent.searchFolded
-        return name.hasPrefix("screenshot") || name.hasPrefix("screen shot")
-            || path.contains("/Pictures/Screenshots/")
+        if name.hasPrefix("screenshot") || name.hasPrefix("screen shot")
+            || path.contains("/Pictures/Screenshots/") {
+            return true
+        }
+        guard let root = configuredScreenshotRoot else { return false }
+        return path.hasPrefix(root + "/")
     }
 
     private static func matchesTime(_ date: Date, option: String, now: Date) -> Bool {
@@ -728,8 +764,16 @@ enum RefinementMatcher {
         case "files": return result.source == .file && !result.isFolder && !result.isApp
         case "folders": return result.isFolder
         case "apps": return result.isApp
-        case "images": return result.contentTypes.contains("public.image")
-        case "pdfs": return result.contentTypes.contains("com.adobe.pdf")
+        case "images":
+            // Match the Photos chip's rule: content-type tree OR known
+            // extension, so files agree across All→Images and Photos.
+            return result.contentTypes.contains("public.image")
+                || FileType.photos.filenameExtensions.contains(
+                    URL(fileURLWithPath: result.path).pathExtension.lowercased()
+                )
+        case "pdfs":
+            return result.contentTypes.contains("com.adobe.pdf")
+                || result.path.lowercased().hasSuffix(".pdf")
         case "messages": return result.source == .message
         case "notes": return result.source == .note
         case "mail": return result.source == .mail

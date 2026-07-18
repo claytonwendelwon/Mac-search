@@ -21,7 +21,7 @@ struct RecentFileRecord {
 /// files; the filesystem does not. We scan visible user folders, ignore app
 /// internals, and sort by the newest touch we can observe.
 final class RecentsStore {
-    private let home = NSHomeDirectory()
+    private let home: String
     private let fm = FileManager.default
     private let windowDays = 30.0
     private let freshLaneHours = 48.0
@@ -32,6 +32,8 @@ final class RecentsStore {
     private let cacheLock = NSLock()
     private var cacheGeneration = 0
     private var lastScanAt = Date.distantPast
+    private var freshCache: [RecentFileRecord] = []
+    private var freshCachedAt = Date.distantPast
 
     private let resourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
@@ -43,6 +45,10 @@ final class RecentsStore {
         .fileSizeKey,
         .contentTypeKey
     ]
+
+    init(home: String = NSHomeDirectory()) {
+        self.home = home
+    }
 
     func search(tokens: [String], limit: Int = 200,
                 isCancelled: (() -> Bool)? = nil) -> [RecentFileRecord] {
@@ -139,8 +145,50 @@ final class RecentsStore {
         return results
     }
 
+    func freshItems(limit: Int = 500,
+                    isCancelled: (() -> Bool)? = nil) -> [RecentFileRecord] {
+        cacheLock.lock()
+        if Date().timeIntervalSince(freshCachedAt) < 3 {
+            let cached = Array(freshCache.prefix(limit))
+            cacheLock.unlock()
+            return cached
+        }
+        cacheLock.unlock()
+        let cutoff = Date(timeIntervalSinceNow: -freshLaneHours * 3_600)
+        var rows: [RecentFileRecord] = []
+        var seenPaths = Set<String>()
+
+        for root in freshRoots() {
+            guard isCancelled?() != true else { return [] }
+            guard let urls = try? fm.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: Array(resourceKeys),
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            for (index, url) in urls.enumerated() {
+                if index & 0xFF == 0, isCancelled?() == true { return [] }
+                guard let record = record(for: url, tokens: [], cutoff: cutoff),
+                      seenPaths.insert(record.path).inserted else { continue }
+                rows.append(record)
+            }
+        }
+
+        let sorted = rows
+            .sorted {
+                if $0.recency != $1.recency { return $0.recency > $1.recency }
+                return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
+        cacheLock.lock()
+        freshCache = sorted
+        freshCachedAt = Date()
+        cacheLock.unlock()
+        return Array(sorted.prefix(limit))
+    }
+
     func refresh() {
         cacheLock.lock()
+        freshCache = []
+        freshCachedAt = .distantPast
         guard Date().timeIntervalSince(lastScanAt) >= 300 else {
             cacheLock.unlock()
             return
@@ -257,14 +305,17 @@ final class RecentsStore {
     }
 
     private func screenshotRoots() -> [String] {
+        Self.screenshotRoots(home: home)
+    }
+
+    /// Every place screenshots can land, honoring the user's configured
+    /// `com.apple.screencapture location`. Single source of truth — the
+    /// refinement path prefixes and matcher must use this too, so a custom
+    /// screenshot folder behaves identically everywhere.
+    static func screenshotRoots(home: String = NSHomeDirectory()) -> [String] {
         var roots: [String] = []
-        if let configured = UserDefaults.standard
-            .persistentDomain(forName: "com.apple.screencapture")?["location"] as? String,
-           !configured.isEmpty {
-            roots.append(configured)
-        } else if let configured = UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location"),
-           !configured.isEmpty {
-            roots.append(configured)
+        if let configured = configuredScreenshotLocation(), !configured.isEmpty {
+            roots.append((configured as NSString).expandingTildeInPath)
         }
         roots += [
             home + "/Desktop",
@@ -273,6 +324,19 @@ final class RecentsStore {
             home + "/Library/Mobile Documents/com~apple~CloudDocs/Pictures/Screenshots"
         ]
         return roots
+    }
+
+    static func configuredScreenshotLocation() -> String? {
+        if let configured = UserDefaults.standard
+            .persistentDomain(forName: "com.apple.screencapture")?["location"] as? String,
+           !configured.isEmpty {
+            return configured
+        }
+        if let configured = UserDefaults(suiteName: "com.apple.screencapture")?
+            .string(forKey: "location"), !configured.isEmpty {
+            return configured
+        }
+        return nil
     }
 
     private func shouldSkipComponent(_ name: String) -> Bool {
