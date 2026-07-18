@@ -33,6 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showPanel()
         // Instantiating the lazy controller starts Sparkle's scheduled checks.
         _ = updaterController
+        // Background license re-check (no-op unless a key is stored and the
+        // last check is >3 days old; failures just consume the grace window).
+        LicenseStore.shared.revalidateIfNeeded()
         // Touch the Messages DB once so macOS registers Beacon in the Full Disk
         // Access list (users can then just flip the toggle, no manual add).
         engine.warmMessageAccess()
@@ -44,7 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu bar
 
-    private lazy var statusMenu: NSMenu = {
+    /// Rebuilt on every open so the license line reflects current state.
+    private var statusMenu: NSMenu {
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Beacon  (⌥S)",
                      action: #selector(showPanelFromMenu),
@@ -57,13 +61,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         checkForUpdates.target = updaterController
         menu.addItem(checkForUpdates)
+        switch LicenseStore.shared.status {
+        case .licensed, .grace:
+            let licensed = NSMenuItem(title: "License: Active ✓",
+                                      action: nil, keyEquivalent: "")
+            licensed.isEnabled = false
+            menu.addItem(licensed)
+        case .unlicensed, .lapsed:
+            menu.addItem(withTitle: "Enter License…",
+                         action: #selector(promptForLicense),
+                         keyEquivalent: "")
+        }
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Beacon",
                               action: #selector(NSApplication.terminate(_:)),
                               keyEquivalent: "q")
         menu.addItem(quit)
         return menu
-    }()
+    }
+
+    @objc private func promptForLicense() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Enter your Beacon license key"
+        alert.informativeText = "Your key is on the receipt page from your "
+            + "purchase (it looks like BEACON-XXXXX-XXXXX-XXXXX)."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        field.placeholderString = "BEACON-…"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Activate")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        LicenseStore.shared.activate(key: field.stringValue) { result in
+            let outcome = NSAlert()
+            switch result {
+            case .success:
+                outcome.messageText = "Beacon is licensed — thank you!"
+                outcome.informativeText = "Updates and future features are "
+                    + "all included. Happy searching."
+            case .failure(let error):
+                outcome.messageText = "Couldn't activate that key"
+                outcome.informativeText = error.localizedDescription
+                outcome.alertStyle = .warning
+            }
+            outcome.runModal()
+        }
+    }
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

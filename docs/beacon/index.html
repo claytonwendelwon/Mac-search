@@ -405,14 +405,18 @@
 
   <!-- Download -->
   <section class="download-band fade-in" id="download">
-    <h2 class="headline-section">Download Beacon for Mac.</h2>
-    <p class="subhead subhead-light">Version 1.0.4 · macOS 13 or later · Free</p>
+    <h2 class="headline-section">Get Beacon for Mac.</h2>
+    <p class="subhead subhead-light">Version 1.0.7 · macOS 13 or later · Auto-updating</p>
     <div class="cta-row">
-      <a class="btn-download" href="https://github.com/claytonwendelwon/Mac-search/releases/download/v1.0.4/Beacon-1.0.4.dmg">Download</a>
-      <a class="link-more" style="color:#2997ff" href="https://github.com/claytonwendelwon/Mac-search/releases/tag/v1.0.4">Release notes</a>
+      <button class="btn-download" id="buy-beacon" type="button" style="cursor:pointer;border:none">Buy Beacon — $15/year</button>
+      <a class="link-more" style="color:#2997ff" href="https://github.com/claytonwendelwon/Mac-search/releases/latest">Release notes</a>
     </div>
+    <p class="body-copy" style="margin-top:14px">
+      One license, every update delivered automatically. Prefer to build it
+      yourself? Beacon is <a href="#github">open source</a> — free, forever.
+    </p>
     <ol class="download-steps">
-      <li><span class="step-copy">Download <strong>Beacon-1.0.4.dmg</strong> and open it.</span></li>
+      <li><span class="step-copy">Buy Beacon, grab your license key, and download <strong>Beacon.dmg</strong>.</span></li>
       <li><span class="step-copy">Double-click Beacon — it installs into Applications and opens with a hotkey tip.</span></li>
       <li><span class="step-copy">Press <kbd>Option + S</kbd> anywhere to search. Beacon lives in your menu bar.</span></li>
     </ol>
@@ -489,5 +493,20 @@
   </footer>
 
   <script src="../js/main.js?v=20260712-2"></script>
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+  <script>
+    // Client-side token and price ID are public by design (Paddle overlay
+    // checkout). The secret API key lives only in the license Worker.
+    Paddle.Initialize({ token: "live_eaf1f00666c8a008aa6d093916b" });
+    document.getElementById("buy-beacon").addEventListener("click", () => {
+      Paddle.Checkout.open({
+        items: [{ priceId: "pri_01kxvfwbt3n2www7ahy6ep68fp", quantity: 1 }],
+        settings: {
+          displayMode: "overlay",
+          successUrl: "https://beaconmac.com/beacon/thanks"
+        }
+      });
+    });
+  </script>
 </body>
 </html>

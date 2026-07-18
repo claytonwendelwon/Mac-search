@@ -176,11 +176,14 @@ APPCAST_STAGING="$(mktemp -d)"
 cp "$DMG_PATH" "$APPCAST_STAGING/"
 "$ROOT/Vendor/sparkle-tools/generate_appcast" \
   --download-url-prefix "https://github.com/claytonwendelwon/Mac-search/releases/download/v$VERSION/" \
-  --link "https://claytonwendelwon.github.io/Mac-search/" \
+  --link "https://beaconmac.com/" \
   -o "$ROOT/docs/appcast.xml" \
   "$APPCAST_STAGING"
 rm -rf "$APPCAST_STAGING"
-echo "==> Appcast updated. Remember: it is only live once docs/appcast.xml is pushed to main."
+# The appcast (and site) go live on beaconmac.com via Cloudflare Pages.
+echo "==> Deploying docs/ (site + appcast) to beaconmac.com..."
+CLOUDFLARE_ACCOUNT_ID=305ab75281717568c5612a2abcbc696e \
+  npx wrangler pages deploy "$ROOT/docs" --project-name beaconmac --commit-dirty=true
 
 echo
 echo "==> Done. Notarized, stapled disk image:"

@@ -1,0 +1,17 @@
+name = "beacon-license"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+account_id = "305ab75281717568c5612a2abcbc696e"
+
+routes = [
+  { pattern = "license.beaconmac.com", custom_domain = true }
+]
+
+# Public identifier only — the secret PADDLE_API_KEY is set via
+# `wrangler secret put PADDLE_API_KEY` and never appears in the repo.
+[vars]
+PADDLE_PRICE_ID = "pri_01kxvfwbt3n2www7ahy6ep68fp"
+
+[[kv_namespaces]]
+binding = "LICENSES"
+id = "51e09be30ab146dd9bb1fc033dae83ea"
