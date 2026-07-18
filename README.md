@@ -220,3 +220,16 @@ Hotkey / menu bar  ->  floating NSPanel  ->  SwiftUI SearchView
   not downloaded locally.
 - Richer content snippets for text matches inside PDFs/documents.
 - Optional on-device photo recognition.
+
+## License
+
+Beacon's source is available under the
+[PolyForm Internal Use License 1.0.0](LICENSE.md): read it, build it, modify
+it, and use it for yourself (or internally at your company) for free. You may
+**not** redistribute Beacon or works based on it.
+
+Want the signed, notarized build with automatic updates — and to support
+development? [Buy a license at beaconmac.com](https://beaconmac.com) ($15/year).
+
+By submitting a contribution (pull request, patch, or suggestion) you agree it
+may be incorporated into Beacon under the same license.
