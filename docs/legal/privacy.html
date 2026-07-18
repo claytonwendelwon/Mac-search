@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — Beacon</title>
+  <link rel="icon" href="../assets/favicon.png">
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; color: #1d1d1f;
+           margin: 0; background: #fff; }
+    .legal { max-width: 680px; margin: 0 auto; padding: 64px 24px 96px;
+             line-height: 1.6; font-size: 16px; }
+    h1 { font-size: 34px; margin-bottom: 4px; }
+    .updated { color: #6e6e73; font-size: 14px; margin-bottom: 36px; }
+    h2 { font-size: 21px; margin-top: 36px; }
+    a { color: #0066cc; text-decoration: none; }
+    .legal-nav { margin-bottom: 28px; font-size: 14px; }
+    .legal-nav a { margin-right: 16px; }
+  </style>
+</head>
+<body>
+  <div class="legal">
+    <nav class="legal-nav">
+      <a href="/beacon/">← Beacon</a>
+      <a href="/legal/terms">Terms</a>
+      <a href="/legal/refunds">Refunds</a>
+      <a href="/legal/privacy">Privacy</a>
+    </nav>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: July 18, 2026</p>
+
+    <h2>The short version</h2>
+    <p>Beacon searches your Mac <strong>on your Mac</strong>. Your files,
+    messages, notes, mail, calendar events, clipboard, and browsing history
+    are read locally and never uploaded anywhere. The app contains no
+    analytics and no tracking.</p>
+
+    <h2>What the app sends over the network</h2>
+    <p>Beacon makes exactly three kinds of network requests:</p>
+    <p><strong>Update checks.</strong> The app periodically fetches
+    <code>beaconmac.com/appcast.xml</code> to see if a new version exists,
+    and downloads updates from GitHub. No personal data is included.</p>
+    <p><strong>License validation.</strong> If you enter a license key, the
+    app sends <em>only that key</em> to <code>license.beaconmac.com</code>
+    to confirm your subscription is active. No information about your
+    searches, files, or device is sent.</p>
+    <p><strong>Site icons.</strong> When browser-history results are shown,
+    Beacon fetches favicons directly from the sites you've already visited
+    (never via a third-party service). You can avoid this by not using the
+    History filter.</p>
+
+    <h2>Purchase data</h2>
+    <p>Payments are processed by <a href="https://www.paddle.com">Paddle</a>
+    as merchant of record; they collect your name, email, and payment
+    details under
+    <a href="https://www.paddle.com/legal/privacy">Paddle's privacy
+    policy</a>. Our license server stores your license key alongside your
+    Paddle transaction reference and email so we can look your purchase up
+    when you need support or key recovery. We never see your payment
+    details.</p>
+
+    <h2>This website</h2>
+    <p>beaconmac.com is a static site served by Cloudflare. It sets no
+    cookies and runs no analytics. The checkout overlay is provided by
+    Paddle and governed by their policy.</p>
+
+    <h2>macOS permissions</h2>
+    <p>Searching Messages, Notes, Mail, and Safari history requires macOS
+    Full Disk Access, which you grant (and can revoke) in System Settings.
+    Contacts and Calendar access are requested through the standard macOS
+    permission prompts. All of it is optional — file search works with no
+    permissions at all.</p>
+
+    <h2>Contact</h2>
+    <p><a href="mailto:support@beaconmac.com">support@beaconmac.com</a></p>
+  </div>
+</body>
+</html>
