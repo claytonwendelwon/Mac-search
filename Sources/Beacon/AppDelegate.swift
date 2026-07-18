@@ -3,12 +3,20 @@ import SwiftUI
 import Carbon.HIToolbox
 import Quartz
 import QuartzCore
+import Sparkle
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var hotKey: HotKey?
     private var panel: SearchPanel?
     private let engine = SearchEngine()
+    /// Sparkle auto-updater. Checks the appcast (SUFeedURL in Info.plist) on
+    /// its default schedule and on demand from the status menu.
+    private lazy var updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     private let panelWidth: CGFloat = 740
     private let panelHeight: CGFloat = 500
@@ -23,6 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPanel()
         setupHotKey()
         showPanel()
+        // Instantiating the lazy controller starts Sparkle's scheduled checks.
+        _ = updaterController
         // Touch the Messages DB once so macOS registers Beacon in the Full Disk
         // Access list (users can then just flip the toggle, no manual add).
         engine.warmMessageAccess()
@@ -39,6 +49,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Open Beacon  (⌥S)",
                      action: #selector(showPanelFromMenu),
                      keyEquivalent: "")
+        menu.addItem(.separator())
+        let checkForUpdates = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        checkForUpdates.target = updaterController
+        menu.addItem(checkForUpdates)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Beacon",
                               action: #selector(NSApplication.terminate(_:)),

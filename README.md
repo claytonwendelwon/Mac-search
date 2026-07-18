@@ -62,14 +62,14 @@ without security warnings.
 
 ## Website
 
-An Apple-style marketing site lives in [`website/`](website/). Preview locally:
+An Apple-style marketing site lives in [`docs/`](docs/). Preview locally:
 
 ```bash
-bash website/serve.sh
+bash docs/serve.sh
 ```
 
 Then open [http://localhost:8080](http://localhost:8080). To publish on GitHub Pages,
-set the source to the `/website` folder on the `main` branch in repo Settings → Pages.
+set the source to the `/docs` folder on the `main` branch in repo Settings → Pages.
 
 ## Why Beacon?
 

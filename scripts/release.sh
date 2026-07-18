@@ -92,6 +92,9 @@ if ! swift build -c release; then
     -O \
     "${SOURCE_FILES[@]}" \
     -o "$BUILD_DIR/$APP_NAME" \
+    -F "$ROOT/Vendor" \
+    -framework Sparkle \
+    -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     -framework SwiftUI \
     -framework AppKit \
     -framework Carbon \
@@ -105,14 +108,29 @@ fi
 
 echo "==> Assembling $APP_NAME.app..."
 rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
+mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources" \
+  "$APP_BUNDLE/Contents/Frameworks"
 cp "$BUILD_DIR/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 cp "$ROOT/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+cp -R "$ROOT/Vendor/Sparkle.framework" "$APP_BUNDLE/Contents/Frameworks/"
 printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
 
 # --- Sign (Hardened Runtime + secure timestamp) -----------------------------
+# Sparkle's nested XPC services and helpers must be signed inside-out before
+# the framework, and the framework before the app (Sparkle sandboxing guide).
 echo "==> Code signing with Hardened Runtime..."
+SPARKLE_FW="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+  "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc"
+codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+  "$SPARKLE_FW/Versions/B/XPCServices/Installer.xpc"
+codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+  "$SPARKLE_FW/Versions/B/Autoupdate"
+codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+  "$SPARKLE_FW/Versions/B/Updater.app"
+codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+  "$SPARKLE_FW"
 codesign --force --options runtime --timestamp \
   --entitlements "$ROOT/Resources/Beacon.entitlements" \
   --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
@@ -148,6 +166,21 @@ xcrun stapler staple "$DMG_PATH"
 echo "==> Verifying notarization ticket on the DMG..."
 xcrun stapler validate "$DMG_PATH"
 rm -f "$ZIP_PATH"
+
+# --- Sparkle: sign the update and refresh the appcast ------------------------
+# generate_appcast signs with the EdDSA key in the login keychain and MERGES
+# new items into the existing appcast, so history is preserved. The appcast
+# goes live when docs/ is pushed (GitHub Pages serves it at SUFeedURL).
+echo "==> Updating Sparkle appcast (docs/appcast.xml)..."
+APPCAST_STAGING="$(mktemp -d)"
+cp "$DMG_PATH" "$APPCAST_STAGING/"
+"$ROOT/Vendor/sparkle-tools/generate_appcast" \
+  --download-url-prefix "https://github.com/claytonwendelwon/Mac-search/releases/download/v$VERSION/" \
+  --link "https://claytonwendelwon.github.io/Mac-search/" \
+  -o "$ROOT/docs/appcast.xml" \
+  "$APPCAST_STAGING"
+rm -rf "$APPCAST_STAGING"
+echo "==> Appcast updated. Remember: it is only live once docs/appcast.xml is pushed to main."
 
 echo
 echo "==> Done. Notarized, stapled disk image:"
@@ -275,5 +308,13 @@ EOF
       --title "Beacon $VERSION" --notes-file "$NOTES_FILE"
   fi
   rm -f "$NOTES_FILE"
+
+  # Push the refreshed appcast so existing installs see the update.
+  if ! git diff --quiet -- docs/appcast.xml; then
+    echo "==> Committing and pushing the updated appcast..."
+    git add docs/appcast.xml
+    git commit -m "Publish appcast for $VERSION"
+    git push origin main
+  fi
   echo "==> Release published."
 fi

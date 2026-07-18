@@ -45,6 +45,9 @@ if ! swift build -c "$CONFIG"; then
 
   xcrun swiftc "${SWIFT_FLAGS[@]}" "${SOURCE_FILES[@]}" \
     -o "$BUILD_DIR/$APP_NAME" \
+    -F "$ROOT/Vendor" \
+    -framework Sparkle \
+    -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     -framework SwiftUI \
     -framework AppKit \
     -framework Carbon \
@@ -60,13 +63,16 @@ echo "==> Assembling $APP_NAME.app..."
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
 
 cp "$BUILD_DIR/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 cp "$ROOT/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+cp -R "$ROOT/Vendor/Sparkle.framework" "$APP_BUNDLE/Contents/Frameworks/"
 printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
 
 echo "==> Ad-hoc signing..."
+codesign --force --deep --sign - "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" >/dev/null 2>&1 || true
 codesign --force --deep --entitlements "$ROOT/Resources/Beacon.entitlements" --sign - "$APP_BUNDLE" >/dev/null 2>&1 || \
   codesign --force --entitlements "$ROOT/Resources/Beacon.entitlements" --sign - "$APP_BUNDLE"
 
