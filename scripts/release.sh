@@ -121,14 +121,16 @@ printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
 # the framework, and the framework before the app (Sparkle sandboxing guide).
 echo "==> Code signing with Hardened Runtime..."
 SPARKLE_FW="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
-codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-  "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc"
-codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-  "$SPARKLE_FW/Versions/B/XPCServices/Installer.xpc"
-codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-  "$SPARKLE_FW/Versions/B/Autoupdate"
-codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
-  "$SPARKLE_FW/Versions/B/Updater.app"
+sign_if_present() {
+  local path="$1"
+  if [ -e "$path" ]; then
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$path"
+  fi
+}
+sign_if_present "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc"
+sign_if_present "$SPARKLE_FW/Versions/B/XPCServices/Installer.xpc"
+sign_if_present "$SPARKLE_FW/Versions/B/Autoupdate"
+sign_if_present "$SPARKLE_FW/Versions/B/Updater.app"
 codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
   "$SPARKLE_FW"
 codesign --force --options runtime --timestamp \
