@@ -17,10 +17,10 @@
         <li><a href="#overview" class="active">Overview</a></li>
         <li><a href="#features">Features</a></li>
         <li><a href="#lineup">Filters</a></li>
-        <li><a href="#download">Download</a></li>
+        <li><a href="#download" data-buy>Download</a></li>
         <li><a href="#github">GitHub</a></li>
       </ul>
-      <a class="subnav-cta" href="#download">Get Beacon</a>
+      <a class="subnav-cta" href="#download" data-buy>Get Beacon</a>
       <button class="nav-menu-button" type="button" data-menu-toggle
               aria-expanded="false" aria-controls="product-mobile-menu" aria-label="Open menu">
         <span></span><span></span><span></span>
@@ -31,7 +31,7 @@
         <a href="#features">Features</a>
         <a href="#lineup">Filters</a>
         <a href="#privacy">Privacy</a>
-        <a href="#download">Download</a>
+        <a href="#download" data-buy>Download</a>
         <a href="https://github.com/claytonwendelwon/Mac-search">GitHub</a>
       </div>
     </div>
@@ -43,7 +43,7 @@
     <p class="subhead">Local search. Finally done right.</p>
     <div class="cta-row">
       <a class="link-more" href="#features">Learn more</a>
-      <a class="link-more" href="#download">Download</a>
+      <a class="link-more" href="#download" data-buy>Download</a>
     </div>
     <div class="hero-visual">
       <img class="product-shot product-shot-hero fade-in"
@@ -92,7 +92,7 @@
         <p>Spotlight and Finder Recents miss freshly saved files all the time. Beacon scans your filesystem directly — so screenshots, downloads, and exports appear the moment they land on disk.</p>
         <h3>Fast lane for fresh files.</h3>
         <p>Beacon checks Downloads and Desktop before any deep crawl, so your latest screenshot is always at the top.</p>
-        <a class="link-more" href="#download">Download Beacon</a>
+        <a class="link-more" href="#download" data-buy>Download Beacon</a>
       </div>
       <div class="tab-panel-visual">
         <img class="product-shot product-shot-detail"
@@ -408,7 +408,7 @@
     <h2 class="headline-section">Get Beacon for Mac.</h2>
     <p class="subhead subhead-light">Version 1.0.7 · macOS 13 or later · Auto-updating</p>
     <div class="cta-row">
-      <button class="btn-download" id="buy-beacon" type="button" style="cursor:pointer;border:none">Buy Beacon — $15/year</button>
+      <button class="btn-download" id="buy-beacon" type="button" data-buy style="cursor:pointer;border:none">Buy Beacon — $15/year</button>
       <a class="link-more" style="color:#2997ff" href="https://github.com/claytonwendelwon/Mac-search/releases/latest">Release notes on GitHub</a>
     </div>
     <p class="body-copy" style="margin-top:14px">
@@ -444,7 +444,7 @@
             <li><a href="#overview">Overview</a></li>
             <li><a href="#features">Features</a></li>
             <li><a href="#lineup">Filters</a></li>
-            <li><a href="#download">Download</a></li>
+            <li><a href="#download" data-buy>Download</a></li>
           </ul>
         </div>
         <div class="footer-col">
@@ -489,7 +489,7 @@
           <a href="/legal/terms">Terms</a>
           <a href="/legal/refunds">Refunds</a>
           <a href="/legal/privacy">Privacy</a>
-          <a href="#download">Download</a>
+          <a href="#download" data-buy>Download</a>
         </div>
       </div>
     </div>
@@ -501,7 +501,9 @@
     // Client-side token and price ID are public by design (Paddle overlay
     // checkout). The secret API key lives only in the license Worker.
     Paddle.Initialize({ token: "live_eaf1f00666c8a008aa6d093916b" });
-    document.getElementById("buy-beacon").addEventListener("click", () => {
+    function openBeaconCheckout(e) {
+      if (!window.Paddle) return;
+      e.preventDefault();
       Paddle.Checkout.open({
         items: [{ priceId: "pri_01kxvfwbt3n2www7ahy6ep68fp", quantity: 1 }],
         settings: {
@@ -509,6 +511,9 @@
           successUrl: "https://beaconmac.com/beacon/thanks"
         }
       });
+    }
+    document.querySelectorAll("[data-buy]").forEach(function (el) {
+      el.addEventListener("click", openBeaconCheckout);
     });
   </script>
 </body>

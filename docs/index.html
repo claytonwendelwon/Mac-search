@@ -23,25 +23,25 @@
       <ul class="globalnav-links">
         <li><a href="beacon/index.html">Beacon</a></li>
         <li><a href="beacon/index.html#features">Features</a></li>
-        <li><a href="beacon/index.html#download">Download</a></li>
+        <li><a href="beacon/index.html#download" data-buy>Download</a></li>
         <li><a href="beacon/index.html#privacy">Privacy</a></li>
         <li><a href="https://github.com/claytonwendelwon/Mac-search">GitHub</a></li>
       </ul>
       <div class="globalnav-actions">
         <a href="https://github.com/claytonwendelwon/Mac-search" aria-label="GitHub">GitHub</a>
-        <a href="beacon/index.html#download" aria-label="Download">Download</a>
+        <a href="beacon/index.html#download" aria-label="Download" data-buy>Download</a>
       </div>
       <button class="nav-menu-button" type="button" data-menu-toggle
               aria-expanded="false" aria-controls="home-mobile-menu" aria-label="Open menu">
         <span></span><span></span><span></span>
       </button>
-      <a class="globalnav-mobile-cta" href="beacon/index.html#download">Download</a>
+      <a class="globalnav-mobile-cta" href="beacon/index.html#download" data-buy>Download</a>
       <div class="mobile-nav" id="home-mobile-menu" data-mobile-menu>
         <a href="beacon/index.html">Beacon</a>
         <a href="beacon/index.html#features">Features</a>
         <a href="beacon/index.html#lineup">Filters</a>
         <a href="beacon/index.html#privacy">Privacy</a>
-        <a href="beacon/index.html#download">Download</a>
+        <a href="beacon/index.html#download" data-buy>Download</a>
         <a href="https://github.com/claytonwendelwon/Mac-search">GitHub</a>
       </div>
     </div>
@@ -166,7 +166,7 @@
     <h2 class="headline-section">Get Beacon for Mac.</h2>
     <p class="subhead subhead-light">$15/year · Native · Notarized by Apple · Auto-updating</p>
     <div class="cta-row">
-      <a class="btn-download" href="beacon/index.html#download">Buy Beacon</a>
+      <a class="btn-download" href="beacon/index.html#download" data-buy>Buy Beacon</a>
       <a class="link-more" style="color:#2997ff" href="https://github.com/claytonwendelwon/Mac-search/releases/latest">Latest release on GitHub</a>
     </div>
   </section>
@@ -190,7 +190,7 @@
           <ul>
             <li><a href="beacon/index.html">Overview</a></li>
             <li><a href="beacon/index.html#features">Features</a></li>
-            <li><a href="beacon/index.html#download">Download</a></li>
+            <li><a href="beacon/index.html#download" data-buy>Download</a></li>
             <li><a href="beacon/index.html#privacy">Privacy</a></li>
           </ul>
         </div>
@@ -235,12 +235,32 @@
           <a href="/legal/terms">Terms</a>
           <a href="/legal/refunds">Refunds</a>
           <a href="/legal/privacy">Privacy</a>
-          <a href="beacon/index.html#download">Download</a>
+          <a href="beacon/index.html#download" data-buy>Download</a>
         </div>
       </div>
     </div>
   </footer>
 
   <script src="js/main.js?v=20260712-2"></script>
+  <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+  <script>
+    // Every purchase CTA opens checkout directly; if Paddle hasn't loaded,
+    // the links gracefully fall through to the buy section.
+    Paddle.Initialize({ token: "live_eaf1f00666c8a008aa6d093916b" });
+    function openBeaconCheckout(e) {
+      if (!window.Paddle) return;
+      e.preventDefault();
+      Paddle.Checkout.open({
+        items: [{ priceId: "pri_01kxvfwbt3n2www7ahy6ep68fp", quantity: 1 }],
+        settings: {
+          displayMode: "overlay",
+          successUrl: "https://beaconmac.com/beacon/thanks"
+        }
+      });
+    }
+    document.querySelectorAll("[data-buy]").forEach(function (el) {
+      el.addEventListener("click", openBeaconCheckout);
+    });
+  </script>
 </body>
 </html>
