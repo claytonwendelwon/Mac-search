@@ -194,115 +194,46 @@ if [ "$PUBLISH" = "true" ]; then
   echo "==> Publishing GitHub Release v$VERSION..."
   NOTES_FILE="$(mktemp)"
   cat > "$NOTES_FILE" <<EOF
-Beacon $VERSION - a fast, native macOS search launcher.
+Beacon $VERSION — the fast, private macOS search that replaces Spotlight
+and fixes Finder's blind spots.
 
 ## Install
 1. Download \`$APP_NAME-$VERSION.dmg\` below and open it.
-2. **Double-click Beacon.** That's it - it installs itself into Applications,
-   relaunches from there, and opens the search bar with a quick hotkey tip.
-   (Dragging to the Applications folder still works too, if you prefer.)
-3. Press **Option + S** anywhere to open the search bar. Press **Esc** to dismiss.
-   Beacon lives in the menu bar (its beacon icon) - no Dock icon or main window.
+2. **Double-click Beacon.** It installs itself into Applications and
+   relaunches from there. (Dragging to Applications works too.)
+3. Press **Option + S** anywhere to search. Beacon lives in the menu bar.
 
-This build is signed with a Developer ID and notarized by Apple, so it opens
-without security warnings.
-
-## Search your text messages (optional)
-Beacon can search your iMessage & SMS history. macOS protects the Messages
-database, so this needs **Full Disk Access** (a one-time, manual toggle that
-Apple requires for any app reading Messages):
-
-1. In Beacon, press **Option + S** and click the **Messages** filter.
-2. Click **Open Settings** - this jumps straight to
-   **System Settings -> Privacy & Security -> Full Disk Access**.
-3. Find **Beacon** in the list and turn its switch **on**.
-   (Beacon adds itself to this list automatically - no need for the "+" button.)
-4. Choose **Quit & Reopen** when prompted.
-
-Now select the **Messages** filter and search by word, phrase, or contact.
-**Return** opens the conversation in Messages; **Cmd + C** copies the text.
-
-The same **Full Disk Access** toggle also unlocks **Notes** and **Safari
-history**. (Chrome, Brave, Edge, and Arc history work without it.)
-
-> File search needs no permissions and works the moment you launch Beacon.
-> Full Disk Access only unlocks Messages, Notes, Safari history, and a few
-> protected folders.
-
-## Highlights
-- **Unified "All" search** - the All tab blends files & apps, messages, and
-  notes into one grouped, ranked list. Chips included in All show a small dot;
-  Clipboard and History are opt-in via their own chips.
-- **Recents that actually works** - the **Recents** filter shows files you've
-  opened, saved, or added recently, including fresh images/videos/downloads,
-  while filtering out app internals, caches, folders, and other Finder noise.
-  Type to narrow within the recent-files timeline.
-- **Clipboard history** - everything you copy is captured locally and
-  searchable under the **Clipboard** filter. **Return** copies it back, ready
-  to paste. Private/transient copies (password managers) are skipped.
-- **Browser history** - the **History** filter searches every page you've
-  visited across **Safari, Chrome, Brave, Edge, and Arc** (all profiles).
-  **Return** opens it; **Cmd + C** copies the link.
-- **System Settings shortcuts** - the **Settings** filter jumps straight to
-  Wi-Fi, Displays, Privacy, Full Disk Access, Keyboard, Battery, and more.
-- **Notes search** - search across all your Apple Notes; **Return** opens the
-  exact note.
+Signed with a Developer ID and notarized by Apple — no security warnings.
 
 ## What's new in $VERSION
-- **More reliable app search.** Beacon now handles stale app results better,
-  improves app ranking, and keeps downloaded/third-party apps easier to find.
-- **Search reliability tests.** New automated tests cover app matching, ranking,
-  and fallback search behavior so launcher regressions are easier to catch.
-- **Sharper Beacon branding.** The app icon, menu-bar mark, favicon, and website
-  navigation have been refreshed for a cleaner product presentation.
-- **Connected-source search.** Beacon now includes first-pass local Mail and
-  Calendar sources, with permission-aware previews and results alongside your
-  existing files, messages, notes, history, and settings.
-- **Customizable filters.** You can edit which source chips appear in Beacon,
-  with cleaner controls and a saved layout so the launcher matches how you work.
-- **More reliable protected-source handling.** Database-backed sources now have
-  clearer access requirements and preview behavior when macOS permissions are
-  needed.
-- **A new glass interface.** Beacon now uses a clearer, more modern macOS
-  material with continuous 24-point corners, subtle specular highlights,
-  floating glass filter controls, and improved spacing throughout.
-- **Clearer result selection.** The active result uses a restrained light-blue
-  tint so names, paths, metadata, and icons remain easy to read.
-- **Cleaner thumbnails.** File previews and app icons no longer sit inside
-  redundant outlined image holders.
-- **Fresh screenshot/download fast lane.** Recents now checks Desktop,
-  Downloads, configured screenshot folders, and iCloud equivalents before the
-  deeper crawl, so brand-new screenshots show up immediately even on Macs with
-  huge folders.
-- **Better intent ranking.** Beacon now favors exact phrase and standalone-word
-  matches across Messages, Notes, History, Clipboard, Apps, Recents, Settings,
-  and file names, so \`main\` beats \`maintain\` and \`IG\` beats random
-  substrings.
-- **Expanded Settings shortcuts.** The Settings filter now includes direct
-  matches for Storage, Network, Login Items, Passwords, Touch ID & Password,
-  Software Update, Date & Time, and more relevant keyword ranking.
-- **Recents is now filesystem-backed.** Fresh Safari saves, screenshots, and
-  downloads show up immediately without relying on Spotlight/Finder Recents.
-- **File thumbnails.** Images, PDFs, videos, and many docs now show Quick Look
-  previews in file rows instead of generic icons.
-- **History favicons.** Browser-history rows load site icons directly from the
-  visited site (no third-party favicon service), with better fallbacks for
-  sites that don't expose their standard favicon.
-- **Downloaded apps show up.** Apps are scanned directly from application
-  folders, so third-party/external installs like Chrome, Claude, Cursor, and
-  Discord show in Apps and All.
-- **System Settings filter.** A new last filter jumps directly to common
-  System Settings panes like Wi-Fi, Privacy, Full Disk Access, Displays,
-  Keyboard, Battery, and more.
-- **Custom menu-bar icon.** Beacon now uses a small template Beacon lens mark
-  in the menu bar instead of Apple's generic search glyph.
-- **Expanded GitHub docs.** The README now explains what Beacon can do, why it
-  avoids Spotlight/Finder's common failure modes, and how the local scanners
-  work.
+- **Automatic updates.** Beacon now updates itself (Sparkle). This is the
+  last version you'll ever need to download by hand.
+- **Launch at login.** Beacon survives reboots; toggle it from the
+  menu-bar menu.
+- **Licensing.** Beacon is \$15/year at https://beaconmac.com — enter your
+  key via the menu-bar icon → Enter License. The source stays public and
+  free to build yourself.
+- **Search you can trust.** Folder results refresh mid-session and deleted
+  folders stop haunting results; videos found by type are no longer
+  dropped (and TypeScript files no longer masquerade as videos); Docs,
+  Photos, and Videos browsing skips repo junk instead of burying real
+  files; the Screenshots filter honors your custom screenshot folder;
+  Calendar finally shows recent and upcoming events.
+- **Ranking that respects your query.** Exact-name matches rank first —
+  across every source in the All view too.
+- **Fresher data.** New texts, notes, browser history, and mail are
+  findable mid-session without relaunching; contact-name search works the
+  moment Contacts loads.
+- **Much faster media browsing.** Scrolling Photos/Videos no longer
+  restarts the search per page; thumbnails load in view order.
+- **Fixes.** Quick Look no longer dismisses the panel; Cmd+C copies
+  selected search text; fast typing can't open the wrong result; stores
+  report real errors instead of wrongly demanding Full Disk Access.
 
-Upgrading from an earlier version? Just replace the app in Applications -
-your Full Disk Access setting carries over. Clipboard history starts recording
-as soon as you launch this build.
+## Full Disk Access (optional)
+Messages, Notes, Mail, and Safari history need macOS **Full Disk Access**:
+open a protected filter in Beacon, click **Open Settings**, flip the
+toggle, then Quit & Reopen. File search needs no permissions at all.
 EOF
   if gh release view "v$VERSION" >/dev/null 2>&1; then
     gh release upload "v$VERSION" "$DMG_PATH" --clobber

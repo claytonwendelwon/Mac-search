@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 import Carbon.HIToolbox
 import Quartz
@@ -36,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Background license re-check (no-op unless a key is stored and the
         // last check is >3 days old; failures just consume the grace window).
         LicenseStore.shared.revalidateIfNeeded()
+        enableLaunchAtLoginOnce()
         // Touch the Messages DB once so macOS registers Beacon in the Full Disk
         // Access list (users can then just flip the toggle, no manual add).
         engine.warmMessageAccess()
@@ -72,12 +74,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                          action: #selector(promptForLicense),
                          keyEquivalent: "")
         }
+        let launchItem = NSMenuItem(title: "Launch at Login",
+                                    action: #selector(toggleLaunchAtLogin),
+                                    keyEquivalent: "")
+        launchItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.addItem(launchItem)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Beacon",
                               action: #selector(NSApplication.terminate(_:)),
                               keyEquivalent: "q")
         menu.addItem(quit)
         return menu
+    }
+
+    /// A hotkey launcher must survive reboots, so login-item registration is
+    /// on by default — enabled exactly once so a user's explicit opt-out in
+    /// the menu (or System Settings) is never overridden. macOS notifies the
+    /// user when the login item is added.
+    private func enableLaunchAtLoginOnce() {
+        let flag = "beacon.launchAtLogin.autoEnabled"
+        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        UserDefaults.standard.set(true, forKey: flag)
+        do {
+            try SMAppService.mainApp.register()
+            Log.write("Launch at login enabled (first run).")
+        } catch {
+            Log.write("Launch at login registration failed: \(error.localizedDescription)")
+        }
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            Log.write("Launch-at-login toggle failed: \(error.localizedDescription)")
+        }
     }
 
     @objc private func promptForLicense() {
