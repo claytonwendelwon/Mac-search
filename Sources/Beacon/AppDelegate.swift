@@ -187,8 +187,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let root = SearchView(
             engine: engine,
             onClose: { [weak self] in self?.hidePanel() },
-            onEditingChanged: { [weak panel] editing in
-                panel?.isMovableByWindowBackground = !editing
+            onEditingChanged: { _ in
+                // Window dragging is handled by the header's WindowMoveArea, so
+                // there's nothing to toggle here.
             },
             onRefinementSidebarChanged: { [weak self] open in
                 self?.setRefinementSidebarOpen(open)
@@ -311,7 +312,6 @@ extension AppDelegate: NSWindowDelegate {
             if FilterLayoutStore.shared.isEditing {
                 FilterLayoutStore.shared.cancelMove()
                 FilterLayoutStore.shared.isEditing = false
-                panel.isMovableByWindowBackground = true
             }
             // First launch must remain discoverable even if Finder or the DMG
             // takes focus during relaunch. Escape still closes it, and normal

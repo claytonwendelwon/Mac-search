@@ -10,6 +10,13 @@ struct SearchView: View {
     let onRefinementSidebarChanged: (Bool) -> Void
 
     @State private var selectedIndex: Int = 0
+    /// Multi-selection by result id. Empty means "just the cursor row"
+    /// (selectedIndex); non-empty is an explicit multi-selection.
+    @State private var selection: Set<String> = []
+    @State private var selectionAnchor: Int?
+    /// Only auto-scroll to the cursor for keyboard navigation — clicking to
+    /// (multi-)select should never yank the list up or down.
+    @State private var autoScrollOnSelect = false
     @State private var draggedFilter: FileType?
     @State private var dragPointer: CGPoint?
     @State private var dragGrabOffset: CGSize = .zero
@@ -19,6 +26,9 @@ struct SearchView: View {
     @State private var activePreview: ActivePreview?
     @State private var isLoadingPreview = false
     @State private var copiedResultID: String?
+    @State private var renameTarget: SearchResult?
+    @State private var renameText: String = ""
+    @FocusState private var renameFieldFocused: Bool
     @AppStorage("refinementSidebarOpen") private var refinementSidebarOpen = false
     @Environment(\.colorScheme) private var colorScheme
 
@@ -34,6 +44,7 @@ struct SearchView: View {
     var body: some View {
         VStack(spacing: 0) {
             searchField
+                .background(WindowMoveArea())
             glassDivider
             HStack(spacing: 0) {
                 refinementSidebar
@@ -85,11 +96,21 @@ struct SearchView: View {
         .onChange(of: engine.results) { _ in
             selectedIndex = engine.results.isEmpty ? 0 : min(selectedIndex, engine.results.count - 1)
             selectedIndex = max(0, selectedIndex)
+            // Drop selected ids that no longer exist in the new result set.
+            if !selection.isEmpty {
+                let live = Set(engine.results.map(\.id))
+                selection = selection.intersection(live)
+            }
         }
         .onChange(of: engine.queryText) { _ in
             // A new query is a new result set; carrying the old highlight
             // position over means a fast Return opens the wrong item.
             selectedIndex = 0
+            selection = []
+            selectionAnchor = nil
+        }
+        .overlay {
+            if renameTarget != nil { renameOverlay }
         }
         .onChange(of: engine.selectedType) { _ in
             ThumbnailStore.shared.cancelAll()
@@ -1448,17 +1469,12 @@ struct SearchView: View {
                                 .padding(.top, index == 0 ? 2 : 10)
                                 .padding(.bottom, 2)
                         }
-                        ResultRow(result: result, isSelected: index == selectedIndex,
+                        ResultRow(result: result, isSelected: isRowSelected(index, result),
                                   tokens: highlightTokens,
                                   showRecency: engine.selectedType == .recents)
+                            .allowsHitTesting(false)
+                            .background(rowInteraction(for: result, at: index))
                             .id(result.id)
-                            .onTapGesture(count: 2) {
-                                selectedIndex = index
-                                activateResult(result)
-                            }
-                            .onTapGesture {
-                                selectedIndex = index
-                            }
                     }
                     if engine.canLoadMore || engine.isLoadingMore {
                         HStack {
@@ -1484,6 +1500,8 @@ struct SearchView: View {
                 .padding(.vertical, 8)
             }
             .onChange(of: selectedIndex) { newValue in
+                guard autoScrollOnSelect else { return }
+                autoScrollOnSelect = false
                 if engine.results.indices.contains(newValue) {
                     proxy.scrollTo(engine.results[newValue].id, anchor: .center)
                 }
@@ -1506,17 +1524,12 @@ struct SearchView: View {
                             index, result in
                             GridResultCard(
                                 result: result,
-                                isSelected: index == selectedIndex,
+                                isSelected: isRowSelected(index, result),
                                 style: engine.selectedType.isApps ? .app : .image
                             )
+                            .allowsHitTesting(false)
+                            .background(rowInteraction(for: result, at: index))
                             .id(result.id)
-                            .onTapGesture(count: 2) {
-                                selectedIndex = index
-                                activateResult(result)
-                            }
-                            .onTapGesture {
-                                selectedIndex = index
-                            }
                         }
                     }
 
@@ -1544,6 +1557,8 @@ struct SearchView: View {
                 .padding(.vertical, 10)
             }
             .onChange(of: selectedIndex) { newValue in
+                guard autoScrollOnSelect else { return }
+                autoScrollOnSelect = false
                 if engine.results.indices.contains(newValue) {
                     proxy.scrollTo(engine.results[newValue].id, anchor: .center)
                 }
@@ -1833,7 +1848,11 @@ struct SearchView: View {
     private func moveSelection(_ delta: Int) {
         guard !engine.results.isEmpty else { return }
         let count = engine.results.count
+        autoScrollOnSelect = true
         selectedIndex = (selectedIndex + delta + count) % count
+        // Arrow keys collapse a multi-selection back to the single cursor row.
+        selection = []
+        selectionAnchor = selectedIndex
     }
 
     private func cycleFilter(forward: Bool) {
@@ -1868,6 +1887,10 @@ struct SearchView: View {
 
     private func openSelected() {
         guard let result = selectedResult else { return }
+        openResult(result)
+    }
+
+    private func openResult(_ result: SearchResult) {
         switch result.source {
         case .message:
             openMessage(result)
@@ -1990,6 +2013,10 @@ struct SearchView: View {
 
     private func copySelectedItem() {
         guard let result = selectedResult else { return }
+        copyResult(result)
+    }
+
+    private func copyResult(_ result: SearchResult) {
         if result.source == .clipboard {
             ClipboardStore.shared.copyToPasteboard(result.messageBody ?? result.name)
             showCopyFeedback(for: result.id)
@@ -2023,6 +2050,230 @@ struct SearchView: View {
                 copiedResultID = nil
             }
         }
+    }
+
+    /// The AppKit interaction layer behind each row: click, double-click,
+    /// right-click menu, and multi-item drag.
+    private func rowInteraction(for result: SearchResult, at index: Int) -> some View {
+        ResultInteractionView(
+            onClick: { flags in handleClick(index: index, result: result, flags: flags) },
+            onDoubleClick: {
+                selection = [result.id]
+                selectedIndex = index
+                activateResult(result)
+            },
+            dragItems: { dragItems(for: result) },
+            makeMenu: {
+                // Right-clicking a row outside the current selection selects just
+                // that row first (Finder behavior).
+                if !effectiveSelection().contains(result.id) {
+                    selection = [result.id]
+                    selectedIndex = index
+                }
+                return buildMenu(for: result)
+            }
+        )
+    }
+
+    /// Pasteboard writers for a drag beginning on `result`. Dragging any file
+    /// that's part of a multi-selection drags every selected file; otherwise it
+    /// drags just this row (a file reference, a web URL, or text).
+    private func dragItems(for result: SearchResult) -> [NSPasteboardWriting] {
+        let sel = effectiveSelection()
+        if sel.count > 1, sel.contains(result.id) {
+            let urls = engine.results
+                .filter { sel.contains($0.id) && $0.source == .file }
+                .map { $0.url as NSURL }
+            if !urls.isEmpty { return urls }
+        }
+        switch result.source {
+        case .file:
+            guard !result.path.isEmpty,
+                  FileManager.default.fileExists(atPath: result.path) else { return [] }
+            return [result.url as NSURL]
+        case .history:
+            guard let raw = result.messageBody, let webURL = URL(string: raw) else { return [] }
+            return [webURL as NSURL]
+        case .message, .note, .mail, .calendar, .clipboard:
+            guard let text = result.messageBody, !text.isEmpty else { return [] }
+            return [text as NSString]
+        case .settings:
+            return []
+        }
+    }
+
+    /// Right-click menu (AppKit) — bulk when inside a multi-selection, otherwise
+    /// the single-item Finder-style set.
+    private func buildMenu(for result: SearchResult) -> NSMenu {
+        let sel = effectiveSelection()
+        let menu = NSMenu()
+        if sel.count > 1, sel.contains(result.id) {
+            let results = engine.results.filter { sel.contains($0.id) }
+            let fileURLs = results.filter { $0.source == .file }.map(\.url)
+            let n = results.count
+            menu.addItem(ActionMenuItem("Open \(n) Items") {
+                for url in fileURLs { NSWorkspace.shared.open(url) }
+                onClose()
+            })
+            menu.addItem(ActionMenuItem("Reveal in Finder") {
+                FileActions.revealInFinder(fileURLs); onClose()
+            })
+            menu.addItem(.separator())
+            menu.addItem(ActionMenuItem("Copy") { copyURLs(fileURLs) })
+            menu.addItem(ActionMenuItem("Duplicate") {
+                for url in fileURLs { FileActions.duplicate(url) }
+                engine.refreshForPanelShow()
+            })
+            menu.addItem(ActionMenuItem("Compress") {
+                for url in fileURLs { FileActions.compress(url) }
+            })
+            menu.addItem(.separator())
+            menu.addItem(ActionMenuItem("Move \(n) Items to Trash") {
+                FileActions.moveToTrash(fileURLs); selection = []; engine.refreshForPanelShow()
+            })
+            return menu
+        }
+
+        if result.source == .file {
+            let url = result.url
+            menu.addItem(ActionMenuItem("Open") { NSWorkspace.shared.open(url); onClose() })
+
+            let openWith = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            let apps = FileActions.applications(toOpen: url)
+            for app in apps {
+                let icon = NSWorkspace.shared.icon(forFile: app.path)
+                icon.size = NSSize(width: 16, height: 16)
+                submenu.addItem(ActionMenuItem(FileActions.appDisplayName(app), image: icon) {
+                    FileActions.open(url, withApplicationAt: app); onClose()
+                })
+            }
+            if !apps.isEmpty { submenu.addItem(.separator()) }
+            submenu.addItem(ActionMenuItem("Other…") { FileActions.openWithOtherApp(url) })
+            openWith.submenu = submenu
+            menu.addItem(openWith)
+
+            menu.addItem(.separator())
+            menu.addItem(ActionMenuItem("Quick Look") { QuickLookController.shared.preview(url) })
+            menu.addItem(ActionMenuItem("Reveal in Finder") {
+                FileActions.revealInFinder([url]); onClose()
+            })
+            menu.addItem(ActionMenuItem("Get Info") { FileActions.getInfo(url) })
+            menu.addItem(.separator())
+            menu.addItem(ActionMenuItem("Copy") { copyResult(result) })
+            menu.addItem(ActionMenuItem("Duplicate") {
+                if FileActions.duplicate(url) != nil { engine.refreshForPanelShow() }
+            })
+            menu.addItem(ActionMenuItem("Rename…") {
+                renameText = result.name; renameTarget = result
+            })
+            menu.addItem(ActionMenuItem("Compress") { FileActions.compress(url) })
+            menu.addItem(.separator())
+            menu.addItem(ActionMenuItem("Move to Trash") {
+                FileActions.moveToTrash([url]); engine.refreshForPanelShow()
+            })
+        } else {
+            menu.addItem(ActionMenuItem("Open") { openResult(result) })
+            menu.addItem(ActionMenuItem("Copy") { copyResult(result) })
+        }
+        return menu
+    }
+
+    /// Whether a row should render selected. With no explicit multi-selection,
+    /// the cursor row (selectedIndex) is the implicit selection.
+    private func isRowSelected(_ index: Int, _ result: SearchResult) -> Bool {
+        selection.isEmpty ? index == selectedIndex : selection.contains(result.id)
+    }
+
+    /// The current selection as ids, resolving the implicit single-cursor case.
+    private func effectiveSelection() -> Set<String> {
+        if !selection.isEmpty { return selection }
+        if engine.results.indices.contains(selectedIndex) {
+            return [engine.results[selectedIndex].id]
+        }
+        return []
+    }
+
+    /// Click with modifier support: ⌘ toggles, ⇧ extends a range from the
+    /// anchor, plain click selects just that row.
+    private func handleClick(index: Int, result: SearchResult, flags: NSEvent.ModifierFlags) {
+        if flags.contains(.command) {
+            var sel = effectiveSelection()
+            if sel.contains(result.id) { sel.remove(result.id) } else { sel.insert(result.id) }
+            selection = sel
+            selectedIndex = index
+            selectionAnchor = index
+        } else if flags.contains(.shift) {
+            let anchor = selectionAnchor ?? selectedIndex
+            let lo = min(anchor, index), hi = max(anchor, index)
+            guard engine.results.indices.contains(lo), engine.results.indices.contains(hi) else { return }
+            selection = Set(engine.results[lo...hi].map(\.id))
+            selectedIndex = index
+        } else {
+            selection = [result.id]
+            selectedIndex = index
+            selectionAnchor = index
+        }
+    }
+
+    /// Copy one or more file URLs (+ their paths) to the pasteboard.
+    private func copyURLs(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        let items = urls.map { url -> NSPasteboardItem in
+            let item = NSPasteboardItem()
+            item.setString(url.absoluteString, forType: .fileURL)
+            item.setString(url.path, forType: .string)
+            return item
+        }
+        pb.writeObjects(items)
+    }
+
+    private func commitRename() {
+        guard let target = renameTarget else { return }
+        if FileActions.rename(target.url, to: renameText) != nil {
+            engine.refreshForPanelShow()
+        }
+        renameTarget = nil
+    }
+
+    /// In-panel rename card. Lives inside the panel's own window so it never
+    /// resigns key (which is what closed the search bar with a modal alert).
+    private var renameOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.28)
+                .ignoresSafeArea()
+                .onTapGesture { renameTarget = nil }
+            VStack(spacing: 14) {
+                Text("Rename")
+                    .font(.system(size: 14, weight: .semibold))
+                TextField("Name", text: $renameText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 280)
+                    .focused($renameFieldFocused)
+                    .onSubmit { commitRename() }
+                HStack(spacing: 10) {
+                    Button("Cancel") { renameTarget = nil }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Rename") { commitRename() }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(22)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.regularMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.12))
+            )
+            .shadow(radius: 20, y: 6)
+        }
+        .onExitCommand { renameTarget = nil }
+        .onAppear { renameFieldFocused = true }
     }
 }
 
