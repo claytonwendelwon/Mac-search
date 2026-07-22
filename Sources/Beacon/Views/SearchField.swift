@@ -11,6 +11,10 @@ struct SearchField: NSViewRepresentable {
 
     var onMoveDown: () -> Void
     var onMoveUp: () -> Void
+    /// Right arrow at the end of the text (drill into the selected folder).
+    var onMoveRight: () -> Void = {}
+    /// Left arrow at the start of the text (go up a folder).
+    var onMoveLeft: () -> Void = {}
     var onSubmit: () -> Void
     var onReveal: () -> Void
     var onPreview: () -> Void
@@ -101,6 +105,21 @@ struct SearchField: NSViewRepresentable {
                 parent.onMoveDown(); return true
             case #selector(NSResponder.moveUp(_:)):
                 parent.onMoveUp(); return true
+            case #selector(NSResponder.moveRight(_:)):
+                // Only hijack Right when the caret is at the very end, so it
+                // still moves through typed text normally otherwise.
+                let range = textView.selectedRange
+                let length = (textView.string as NSString).length
+                if range.length == 0, range.location >= length {
+                    parent.onMoveRight(); return true
+                }
+                return false
+            case #selector(NSResponder.moveLeft(_:)):
+                let range = textView.selectedRange
+                if range.length == 0, range.location == 0 {
+                    parent.onMoveLeft(); return true
+                }
+                return false
             case #selector(NSResponder.insertNewline(_:)):
                 parent.onSubmit(); return true
             case #selector(NSResponder.cancelOperation(_:)):

@@ -143,6 +143,103 @@ enum FileActions {
         }
     }
 
+    /// Move (or copy) dropped files into a destination folder. Returns true if
+    /// at least one item landed. Name collisions get a " 2"/" 3" suffix so
+    /// nothing is overwritten; moving an item already in the folder, or a folder
+    /// into itself/a descendant, is skipped.
+    @discardableResult
+    static func drop(_ urls: [URL], into folder: URL, copy: Bool) -> Bool {
+        let fm = FileManager.default
+        let destFolder = folder.standardizedFileURL
+        var landed = false
+        for src in urls {
+            let source = src.standardizedFileURL
+            let parent = source.deletingLastPathComponent().standardizedFileURL
+            if !copy, parent.path == destFolder.path { continue }       // already here
+            if source.hasDirectoryPath,
+               destFolder.path == source.path
+                || destFolder.path.hasPrefix(source.path + "/") { continue }  // into itself
+            let dest = uniqueDestination(for: source, in: destFolder)
+            do {
+                if copy { try fm.copyItem(at: source, to: dest) }
+                else { try fm.moveItem(at: source, to: dest) }
+                landed = true
+            } catch {
+                Log.write("drop \(copy ? "copy" : "move") failed for \(source.path): \(error)")
+            }
+        }
+        return landed
+    }
+
+    /// Create a folder inside `parent`, avoiding name collisions. Returns the
+    /// created folder's URL.
+    @discardableResult
+    static func createFolder(named name: String, in parent: URL) -> URL? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("/") else { return nil }
+        let fm = FileManager.default
+        var dest = parent.appendingPathComponent(trimmed)
+        var n = 2
+        while fm.fileExists(atPath: dest.path) {
+            dest = parent.appendingPathComponent("\(trimmed) \(n)")
+            n += 1
+        }
+        do {
+            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+            return dest
+        } catch {
+            Log.write("createFolder failed: \(error)")
+            return nil
+        }
+    }
+
+    /// A non-colliding destination URL for `src` inside `folder`.
+    private static func uniqueDestination(for src: URL, in folder: URL) -> URL {
+        let fm = FileManager.default
+        let ext = src.pathExtension
+        let base = src.deletingPathExtension().lastPathComponent
+        var candidate = folder.appendingPathComponent(src.lastPathComponent)
+        var n = 2
+        while fm.fileExists(atPath: candidate.path) {
+            let name = ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)"
+            candidate = folder.appendingPathComponent(name)
+            n += 1
+        }
+        return candidate
+    }
+
+    /// Common destinations for the "Move to" navigator.
+    static func commonMoveLocations() -> [(name: String, url: URL)] {
+        let fm = FileManager.default
+        func dir(_ directory: FileManager.SearchPathDirectory) -> URL? {
+            fm.urls(for: directory, in: .userDomainMask).first
+        }
+        var locations: [(String, URL)] = []
+        if let url = dir(.desktopDirectory) { locations.append(("Desktop", url)) }
+        if let url = dir(.downloadsDirectory) { locations.append(("Downloads", url)) }
+        if let url = dir(.documentDirectory) { locations.append(("Documents", url)) }
+        if let url = dir(.picturesDirectory) { locations.append(("Pictures", url)) }
+        if let url = dir(.moviesDirectory) { locations.append(("Movies", url)) }
+        if let url = dir(.musicDirectory) { locations.append(("Music", url)) }
+        locations.append(("Home", URL(fileURLWithPath: NSHomeDirectory())))
+        let icloud = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+        if fm.fileExists(atPath: icloud.path) { locations.append(("iCloud Drive", icloud)) }
+        locations.append(("Applications", URL(fileURLWithPath: "/Applications")))
+        return locations
+    }
+
+    /// Immediate subfolders of a directory, name-sorted, hidden ones skipped.
+    static func subdirectories(of url: URL) -> [URL] {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return entries
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
     /// Display name for an app URL, without the ".app" suffix.
     static func appDisplayName(_ appURL: URL) -> String {
         let name = FileManager.default.displayName(atPath: appURL.path)

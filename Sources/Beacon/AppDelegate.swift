@@ -270,6 +270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            QLPreviewPanel.shared().isVisible {
             QLPreviewPanel.shared().orderOut(nil)
         }
+        // Tear down any open context-menu cascade so its floating panels can't
+        // orphan on screen when Beacon is dismissed.
+        CascadeController.shared.dismiss()
         panel?.orderOut(nil)
     }
 

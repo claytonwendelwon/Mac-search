@@ -29,6 +29,13 @@ struct SearchView: View {
     @State private var renameTarget: SearchResult?
     @State private var renameText: String = ""
     @FocusState private var renameFieldFocused: Bool
+    /// The folder row currently highlighted as a drop target.
+    @State private var dropTargetID: String?
+    /// "New Folder…" (from the move picker): destination + files to move in.
+    @State private var newFolderParent: URL?
+    @State private var newFolderSources: [URL] = []
+    @State private var newFolderName: String = ""
+    @FocusState private var newFolderFieldFocused: Bool
     @AppStorage("refinementSidebarOpen") private var refinementSidebarOpen = false
     @Environment(\.colorScheme) private var colorScheme
 
@@ -112,6 +119,9 @@ struct SearchView: View {
         .overlay {
             if renameTarget != nil { renameOverlay }
         }
+        .overlay {
+            if newFolderParent != nil { newFolderOverlay }
+        }
         .onChange(of: engine.selectedType) { _ in
             ThumbnailStore.shared.cancelAll()
             FaviconStore.shared.cancelAll()
@@ -157,7 +167,11 @@ struct SearchView: View {
     private var contentBelowSearch: some View {
         VStack(spacing: 0) {
             if activePreview == nil {
-                filterChips
+                if engine.drillURL != nil {
+                    breadcrumbBar
+                } else {
+                    filterChips
+                }
                 glassDivider
             }
             if let activePreview {
@@ -171,6 +185,96 @@ struct SearchView: View {
             footer
         }
         .frame(width: 740)
+    }
+
+    /// Accent ring shown on a folder row while a valid drag hovers over it.
+    @ViewBuilder
+    private func dropHighlight(id: String, cornerRadius: CGFloat) -> some View {
+        if dropTargetID == id {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.accentColor.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                )
+                .allowsHitTesting(false)
+        }
+    }
+
+    private struct Crumb: Hashable { let name: String; let url: URL }
+
+    /// The path chain shown while drilling into a folder. Clicking the search
+    /// glyph exits drill mode; clicking a crumb jumps to that folder.
+    private var breadcrumbBar: some View {
+        let crumbs = breadcrumbs(for: engine.drillURL)
+        return HStack(spacing: 6) {
+            Button { engine.exitDrill() } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Back to search (esc)")
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(Array(crumbs.enumerated()), id: \.element.url) { index, crumb in
+                        Button { enterDrill(crumb.url) } label: {
+                            Text(crumb.name)
+                                .font(.system(size: 12,
+                                               weight: index == crumbs.count - 1 ? .semibold : .regular))
+                                .foregroundStyle(index == crumbs.count - 1 ? Color.primary : Color.secondary)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        if index < crumbs.count - 1 {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Text("→ open · ← up · esc exit")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+    }
+
+    /// Build the crumb chain, collapsing the user's home folder to "Home" and
+    /// the startup volume to "Macintosh HD".
+    private func breadcrumbs(for url: URL?) -> [Crumb] {
+        guard let url else { return [] }
+        var crumbs: [Crumb] = []
+        var current = url.standardizedFileURL
+        let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL
+        while true {
+            let name: String
+            if current.path == home.path {
+                name = "Home"
+            } else if current.path == "/" {
+                name = "Macintosh HD"
+            } else {
+                name = FileManager.default.displayName(atPath: current.path)
+            }
+            crumbs.insert(Crumb(name: name, url: current), at: 0)
+            if current.path == "/" || current.path == home.path { break }
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            if parent.path == current.path { break }
+            current = parent
+        }
+        return crumbs
     }
 
     private var panelShape: RoundedRectangle {
@@ -572,6 +676,8 @@ struct SearchView: View {
                     isEnabled: !filterLayout.isEditing,
                     onMoveDown: { moveSelection(verticalSelectionStep) },
                     onMoveUp: { moveSelection(-verticalSelectionStep) },
+                    onMoveRight: { drillIntoSelectedFolder() },
+                    onMoveLeft: { if engine.drillURL != nil { drillUp() } },
                     onSubmit: { openSelected() },
                     onReveal: { revealSelected() },
                     onPreview: { previewSelected() },
@@ -579,6 +685,8 @@ struct SearchView: View {
                     onCancel: {
                         if filterLayout.isEditing {
                             finishEditing()
+                        } else if engine.drillURL != nil {
+                            engine.exitDrill()
                         } else {
                             onClose()
                         }
@@ -1474,6 +1582,7 @@ struct SearchView: View {
                                   showRecency: engine.selectedType == .recents)
                             .allowsHitTesting(false)
                             .background(rowInteraction(for: result, at: index))
+                            .overlay { dropHighlight(id: result.id, cornerRadius: 12) }
                             .id(result.id)
                     }
                     if engine.canLoadMore || engine.isLoadingMore {
@@ -1529,6 +1638,7 @@ struct SearchView: View {
                             )
                             .allowsHitTesting(false)
                             .background(rowInteraction(for: result, at: index))
+                            .overlay { dropHighlight(id: result.id, cornerRadius: 13) }
                             .id(result.id)
                         }
                     }
@@ -1855,6 +1965,26 @@ struct SearchView: View {
         selectionAnchor = selectedIndex
     }
 
+    /// Browse into a folder (Finder-style drill-in), resetting the cursor.
+    private func enterDrill(_ url: URL) {
+        engine.enterDirectory(url)
+        selectedIndex = 0
+        selection = []
+        selectionAnchor = nil
+    }
+
+    private func drillIntoSelectedFolder() {
+        guard let result = selectedResult, result.source == .file, result.isFolder else { return }
+        enterDrill(result.url)
+    }
+
+    private func drillUp() {
+        engine.browseUp()
+        selectedIndex = 0
+        selection = []
+        selectionAnchor = nil
+    }
+
     private func cycleFilter(forward: Bool) {
         guard !filterLayout.isEditing else { return }
         let all = filterLayout.visibleFilters
@@ -1909,8 +2039,12 @@ struct SearchView: View {
             onClose()
             return
         case .file:
-            NSWorkspace.shared.open(result.url)
-            onClose()
+            if result.isFolder {
+                enterDrill(result.url)   // browse into it, Finder-style (⌘↩ still opens Finder)
+            } else {
+                NSWorkspace.shared.open(result.url)
+                onClose()
+            }
         case .clipboard:
             ClipboardStore.shared.copyToPasteboard(result.messageBody ?? result.name)
             onClose()
@@ -2063,14 +2197,16 @@ struct SearchView: View {
                 activateResult(result)
             },
             dragItems: { dragItems(for: result) },
-            makeMenu: {
-                // Right-clicking a row outside the current selection selects just
-                // that row first (Finder behavior).
-                if !effectiveSelection().contains(result.id) {
-                    selection = [result.id]
-                    selectedIndex = index
-                }
-                return buildMenu(for: result)
+            onRightClick: { point in presentContextMenu(for: result, at: index, screenPoint: point) },
+            dropAccepts: { result.source == .file && result.isFolder },
+            performDrop: { urls, copy in
+                let ok = FileActions.drop(urls, into: result.url, copy: copy)
+                if ok { engine.reloadCurrentView() }
+                return ok
+            },
+            dropHighlightChanged: { active in
+                if active { dropTargetID = result.id }
+                else if dropTargetID == result.id { dropTargetID = nil }
             }
         )
     }
@@ -2102,81 +2238,116 @@ struct SearchView: View {
         }
     }
 
-    /// Right-click menu (AppKit) — bulk when inside a multi-selection, otherwise
-    /// the single-item Finder-style set.
-    private func buildMenu(for result: SearchResult) -> NSMenu {
-        let sel = effectiveSelection()
-        let menu = NSMenu()
-        if sel.count > 1, sel.contains(result.id) {
-            let results = engine.results.filter { sel.contains($0.id) }
-            let fileURLs = results.filter { $0.source == .file }.map(\.url)
-            let n = results.count
-            menu.addItem(ActionMenuItem("Open \(n) Items") {
-                for url in fileURLs { NSWorkspace.shared.open(url) }
-                onClose()
-            })
-            menu.addItem(ActionMenuItem("Reveal in Finder") {
-                FileActions.revealInFinder(fileURLs); onClose()
-            })
-            menu.addItem(.separator())
-            menu.addItem(ActionMenuItem("Copy") { copyURLs(fileURLs) })
-            menu.addItem(ActionMenuItem("Duplicate") {
-                for url in fileURLs { FileActions.duplicate(url) }
-                engine.refreshForPanelShow()
-            })
-            menu.addItem(ActionMenuItem("Compress") {
-                for url in fileURLs { FileActions.compress(url) }
-            })
-            menu.addItem(.separator())
-            menu.addItem(ActionMenuItem("Move \(n) Items to Trash") {
-                FileActions.moveToTrash(fileURLs); selection = []; engine.refreshForPanelShow()
-            })
-            return menu
+    /// Right-clicking a row outside the current selection selects just that row
+    /// first (Finder behavior), then presents the custom cascade context menu.
+    private func presentContextMenu(for result: SearchResult, at index: Int, screenPoint: NSPoint) {
+        if !effectiveSelection().contains(result.id) {
+            selection = [result.id]
+            selectedIndex = index
         }
+        let sel = effectiveSelection()
+        let entries = (sel.count > 1 && sel.contains(result.id))
+            ? bulkContextEntries(ids: sel)
+            : singleContextEntries(result)
+        CascadeController.shared.present(entries, at: screenPoint)
+    }
 
-        if result.source == .file {
-            let url = result.url
-            menu.addItem(ActionMenuItem("Open") { NSWorkspace.shared.open(url); onClose() })
+    private func singleContextEntries(_ result: SearchResult) -> [CascadeEntry] {
+        guard result.source == .file else {
+            return [
+                .action("Open") { openResult(result) },
+                .action("Copy") { copyResult(result) }
+            ]
+        }
+        let url = result.url
+        return [
+            .action("Open") { NSWorkspace.shared.open(url); onClose() },
+            .submenu("Open With") { openWithEntries(url) },
+            .separator,
+            .action("Quick Look") { QuickLookController.shared.preview(url) },
+            .action("Reveal in Finder") { FileActions.revealInFinder([url]); onClose() },
+            .action("Get Info") { FileActions.getInfo(url) },
+            .separator,
+            .action("Copy") { copyResult(result) },
+            .action("Duplicate") { if FileActions.duplicate(url) != nil { engine.refreshForPanelShow() } },
+            .action("Rename…") { renameText = result.name; renameTarget = result },
+            .action("Compress") { FileActions.compress(url) },
+            .submenu("Move to") { moveLocationEntries(sources: [url]) },
+            .separator,
+            .action("Move to Trash") { FileActions.moveToTrash([url]); engine.refreshForPanelShow() }
+        ]
+    }
 
-            let openWith = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
-            let submenu = NSMenu()
-            let apps = FileActions.applications(toOpen: url)
-            for app in apps {
-                let icon = NSWorkspace.shared.icon(forFile: app.path)
+    private func bulkContextEntries(ids: Set<String>) -> [CascadeEntry] {
+        let results = engine.results.filter { ids.contains($0.id) }
+        let fileURLs = results.filter { $0.source == .file }.map(\.url)
+        let n = results.count
+        var entries: [CascadeEntry] = [
+            .action("Open \(n) Items") { for u in fileURLs { NSWorkspace.shared.open(u) }; onClose() },
+            .action("Reveal in Finder") { FileActions.revealInFinder(fileURLs); onClose() },
+            .separator,
+            .action("Copy") { copyURLs(fileURLs) },
+            .action("Duplicate") { for u in fileURLs { FileActions.duplicate(u) }; engine.refreshForPanelShow() },
+            .action("Compress") { for u in fileURLs { FileActions.compress(u) } }
+        ]
+        if !fileURLs.isEmpty {
+            entries.append(.submenu("Move to") { moveLocationEntries(sources: fileURLs) })
+        }
+        entries.append(.separator)
+        entries.append(.action("Move \(n) Items to Trash") {
+            FileActions.moveToTrash(fileURLs); selection = []; engine.refreshForPanelShow()
+        })
+        return entries
+    }
+
+    /// "Open With" children: capable apps (with icons) + Other…
+    private func openWithEntries(_ url: URL) -> [CascadeEntry] {
+        var entries: [CascadeEntry] = FileActions.applications(toOpen: url).map { app in
+            let icon = NSWorkspace.shared.icon(forFile: app.path)
+            icon.size = NSSize(width: 16, height: 16)
+            return .action(FileActions.appDisplayName(app), icon: icon) {
+                FileActions.open(url, withApplicationAt: app); onClose()
+            }
+        }
+        if !entries.isEmpty { entries.append(.separator) }
+        entries.append(.action("Other…") { FileActions.openWithOtherApp(url) })
+        return entries
+    }
+
+    /// "Move to" children: common locations, each drillable.
+    private func moveLocationEntries(sources: [URL]) -> [CascadeEntry] {
+        FileActions.commonMoveLocations().map { location in
+            let icon = NSWorkspace.shared.icon(forFile: location.url.path)
+            icon.size = NSSize(width: 16, height: 16)
+            return .submenu(location.name, icon: icon) { folderMoveEntries(dir: location.url, sources: sources) }
+        }
+    }
+
+    /// A folder's move menu: Move Here + New Folder…, then its subfolders (each
+    /// drillable). Subfolders are read lazily when this submenu opens.
+    private func folderMoveEntries(dir: URL, sources: [URL]) -> [CascadeEntry] {
+        var entries: [CascadeEntry] = [
+            .action("Move Here", systemImage: "arrow.down.to.line.compact") {
+                if FileActions.drop(sources, into: dir, copy: false) {
+                    selection = []; engine.reloadCurrentView()
+                }
+            },
+            .action("New Folder…", systemImage: "folder.badge.plus") {
+                newFolderSources = sources; newFolderName = "New Folder"; newFolderParent = dir
+            }
+        ]
+        let subs = FileActions.subdirectories(of: dir)
+        if !subs.isEmpty {
+            entries.append(.separator)
+            for sub in subs {
+                let icon = NSWorkspace.shared.icon(forFile: sub.path)
                 icon.size = NSSize(width: 16, height: 16)
-                submenu.addItem(ActionMenuItem(FileActions.appDisplayName(app), image: icon) {
-                    FileActions.open(url, withApplicationAt: app); onClose()
+                entries.append(.submenu(sub.lastPathComponent, icon: icon) {
+                    folderMoveEntries(dir: sub, sources: sources)
                 })
             }
-            if !apps.isEmpty { submenu.addItem(.separator()) }
-            submenu.addItem(ActionMenuItem("Other…") { FileActions.openWithOtherApp(url) })
-            openWith.submenu = submenu
-            menu.addItem(openWith)
-
-            menu.addItem(.separator())
-            menu.addItem(ActionMenuItem("Quick Look") { QuickLookController.shared.preview(url) })
-            menu.addItem(ActionMenuItem("Reveal in Finder") {
-                FileActions.revealInFinder([url]); onClose()
-            })
-            menu.addItem(ActionMenuItem("Get Info") { FileActions.getInfo(url) })
-            menu.addItem(.separator())
-            menu.addItem(ActionMenuItem("Copy") { copyResult(result) })
-            menu.addItem(ActionMenuItem("Duplicate") {
-                if FileActions.duplicate(url) != nil { engine.refreshForPanelShow() }
-            })
-            menu.addItem(ActionMenuItem("Rename…") {
-                renameText = result.name; renameTarget = result
-            })
-            menu.addItem(ActionMenuItem("Compress") { FileActions.compress(url) })
-            menu.addItem(.separator())
-            menu.addItem(ActionMenuItem("Move to Trash") {
-                FileActions.moveToTrash([url]); engine.refreshForPanelShow()
-            })
-        } else {
-            menu.addItem(ActionMenuItem("Open") { openResult(result) })
-            menu.addItem(ActionMenuItem("Copy") { copyResult(result) })
         }
-        return menu
+        return entries
     }
 
     /// Whether a row should render selected. With no explicit multi-selection,
@@ -2230,12 +2401,30 @@ struct SearchView: View {
         pb.writeObjects(items)
     }
 
+    /// Home-relative display of a folder path, e.g. "~/Downloads/NEWBUILDBADGES".
+    private func prettyLocation(_ url: URL) -> String {
+        let path = url.path
+        let home = NSHomeDirectory()
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+    }
+
     private func commitRename() {
         guard let target = renameTarget else { return }
         if FileActions.rename(target.url, to: renameText) != nil {
             engine.refreshForPanelShow()
         }
         renameTarget = nil
+    }
+
+    private func commitNewFolder() {
+        guard let parent = newFolderParent else { return }
+        if let folder = FileActions.createFolder(named: newFolderName, in: parent) {
+            FileActions.drop(newFolderSources, into: folder, copy: false)
+            selection = []
+            engine.reloadCurrentView()
+        }
+        newFolderParent = nil
+        newFolderSources = []
     }
 
     /// In-panel rename card. Lives inside the panel's own window so it never
@@ -2275,6 +2464,51 @@ struct SearchView: View {
         .onExitCommand { renameTarget = nil }
         .onAppear { renameFieldFocused = true }
     }
+
+    /// In-panel "New Folder" card (from Move to ▸ New Folder…).
+    private var newFolderOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.28)
+                .ignoresSafeArea()
+                .onTapGesture { newFolderParent = nil }
+            VStack(spacing: 14) {
+                Text("New Folder")
+                    .font(.system(size: 14, weight: .semibold))
+                if let parent = newFolderParent {
+                    Text("in \(prettyLocation(parent))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                TextField("Name", text: $newFolderName)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 280)
+                    .focused($newFolderFieldFocused)
+                    .onSubmit { commitNewFolder() }
+                HStack(spacing: 10) {
+                    Button("Cancel") { newFolderParent = nil }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Create & Move") { commitNewFolder() }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(22)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.regularMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.12))
+            )
+            .shadow(radius: 20, y: 6)
+        }
+        .onExitCommand { newFolderParent = nil }
+        .onAppear { newFolderFieldFocused = true }
+    }
+
 }
 
 private struct OfficeSourceMark: View {

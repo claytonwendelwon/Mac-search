@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 /// Why a result matched the query: by its name/path, or by text found inside
 /// the file's contents. Used for ranking and for the UI badge.
@@ -588,6 +589,14 @@ final class SearchEngine: ObservableObject {
         rawValue: UserDefaults.standard.string(forKey: "beacon.resultSortMode") ?? ""
     ) ?? .recent
 
+    /// When non-nil, Beacon is browsing the immediate contents of this folder
+    /// (Finder-style drill-in) instead of running a Spotlight search. Typing
+    /// filters the folder's children in memory; navigation is instant.
+    @Published private(set) var drillURL: URL?
+    private var drillChildren: [SearchResult] = []
+    private var drillLoadID = 0
+    private let directoryQueue = DispatchQueue(label: "com.beacon.directory", qos: .userInitiated)
+
     var refinementDimensions: [RefinementDimension] {
         if let cachedRefinementDimensions { return cachedRefinementDimensions }
         let dimensions = RefinementCatalog.enriched(
@@ -1070,6 +1079,16 @@ final class SearchEngine: ObservableObject {
         let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
         isShowingStaleResults = !results.isEmpty
 
+        // Drilled into a folder: filter its already-loaded children in memory.
+        if drillURL != nil {
+            nameQuery.stop()
+            contentQuery.stop()
+            contentQueryActive = false
+            currentTokens = trimmed.isEmpty ? [] : SearchText.tokens(trimmed)
+            applyDrillResults()
+            return
+        }
+
         if trimmed.isEmpty {
             nameQuery.stop()
             contentQuery.stop()
@@ -1107,6 +1126,10 @@ final class SearchEngine: ObservableObject {
         pageLimit += pageSize
         isLoadingMore = true
         canLoadMore = false
+        if drillURL != nil {
+            applyDrillResults()
+            return
+        }
         let token = searchToken
         let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -1175,6 +1198,148 @@ final class SearchEngine: ObservableObject {
             return
         }
         runSearch(term: trimmed, token: token)
+    }
+
+    // MARK: - Folder drill-in
+
+    /// Browse the immediate contents of `url` inside Beacon (Finder-style),
+    /// instead of searching. Enumerates children off the main thread, then
+    /// publishes them; typing afterward filters this folder in memory.
+    func enterDirectory(_ url: URL) {
+        let std = url.standardizedFileURL
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: std.path, isDirectory: &isDir),
+              isDir.boolValue else { return }
+
+        nameQuery.stop()
+        contentQuery.stop()
+        contentQueryActive = false
+        drillURL = std
+        drillChildren = []
+        drillLoadID &+= 1
+        let loadID = drillLoadID
+        pageLimit = pageSize
+        currentTokens = []
+        canLoadMore = false
+        isLoadingMore = false
+        isSearching = true
+        // Clear any filter text. If it was already empty the didSet won't fire,
+        // so we've already reset the drill state above either way.
+        if !queryText.isEmpty { queryText = "" }
+        results = []
+
+        directoryQueue.async { [weak self] in
+            let kids = SearchEngine.enumerateDirectory(std)
+            DispatchQueue.main.async {
+                guard let self, self.drillLoadID == loadID, self.drillURL == std else { return }
+                self.drillChildren = kids
+                self.applyDrillResults()
+            }
+        }
+    }
+
+    /// Go up one level from the current drilled folder.
+    func browseUp() {
+        guard let current = drillURL else { return }
+        let parent = current.deletingLastPathComponent().standardizedFileURL
+        guard parent.path != current.path else { return }
+        enterDirectory(parent)
+    }
+
+    /// Leave drill-in mode and return to normal search/browse.
+    func exitDrill() {
+        guard drillURL != nil else { return }
+        drillURL = nil
+        drillChildren = []
+        drillLoadID &+= 1
+        scheduleSearch()
+    }
+
+    /// Re-read the current view after a file operation (e.g. a drop) so moved
+    /// items appear/disappear. Preserves the current filter text and drill mode.
+    func reloadCurrentView() {
+        if let url = drillURL {
+            drillLoadID &+= 1
+            let loadID = drillLoadID
+            directoryQueue.async { [weak self] in
+                let kids = SearchEngine.enumerateDirectory(url)
+                DispatchQueue.main.async {
+                    guard let self, self.drillLoadID == loadID, self.drillURL == url else { return }
+                    self.drillChildren = kids
+                    self.applyDrillResults()
+                }
+            }
+        } else {
+            refreshForPanelShow()
+        }
+    }
+
+    /// Filter the loaded children by the current tokens and publish a page.
+    private func applyDrillResults() {
+        let tokens = currentTokens
+        let rows: [SearchResult]
+        if tokens.isEmpty {
+            rows = drillChildren            // already folder-first, name-sorted
+        } else {
+            rows = drillChildren
+                .compactMap { child -> (SearchResult, SearchText.MatchQuality)? in
+                    guard let quality = SearchText.matchQuality(child.name.searchFolded,
+                                                                tokens: tokens) else { return nil }
+                    return (child, quality)
+                }
+                .sorted { lhs, rhs in
+                    if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+                    if lhs.0.isFolder != rhs.0.isFolder { return lhs.0.isFolder }
+                    return lhs.0.name.localizedStandardCompare(rhs.0.name) == .orderedAscending
+                }
+                .map { $0.0 }
+        }
+        let page = Array(rows.prefix(pageLimit))
+        canLoadMore = rows.count > page.count
+        isLoadingMore = false
+        isSearching = false
+        isShowingStaleResults = false
+        results = page
+    }
+
+    /// Immediate children of a directory as SearchResults, folders first then
+    /// name-sorted (Finder's default). Hidden files are skipped.
+    private static func enumerateDirectory(_ url: URL) -> [SearchResult] {
+        let keys: Set<URLResourceKey> = [
+            .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
+            .contentTypeKey, .addedToDirectoryDateKey, .localizedNameKey, .isApplicationKey
+        ]
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var rows: [SearchResult] = []
+        rows.reserveCapacity(entries.count)
+        for entry in entries {
+            let values = try? entry.resourceValues(forKeys: keys)
+            let isDir = values?.isDirectory ?? false
+            let isApp = values?.isApplication ?? false
+            let contentType = values?.contentType
+            let size = isDir ? nil : (values?.fileSize).map(Int64.init)
+            let name = values?.localizedName ?? entry.lastPathComponent
+            let kind = isDir
+                ? "Folder"
+                : (contentType?.localizedDescription ?? entry.pathExtension.uppercased())
+            let path = entry.standardizedFileURL.path
+            rows.append(SearchResult(
+                id: path, name: name, path: path, kind: kind, size: size,
+                modified: values?.contentModificationDate, lastUsed: nil,
+                dateAdded: values?.addedToDirectoryDate,
+                isFolder: isDir, isApp: isApp,
+                contentTypes: contentType.map { [$0.identifier] } ?? [],
+                matchKind: .name))
+        }
+        rows.sort { lhs, rhs in
+            if lhs.isFolder != rhs.isFolder { return lhs.isFolder }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+        return rows
     }
 
     private func runSearch(term: String, token: Int) {
