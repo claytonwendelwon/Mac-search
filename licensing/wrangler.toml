@@ -7,9 +7,16 @@ routes = [
   { pattern = "license.beaconmac.com", custom_domain = true }
 ]
 
-# Public identifier only — the secret PADDLE_API_KEY is set via
-# `wrangler secret put PADDLE_API_KEY` and never appears in the repo.
+# Public identifiers only (no secrets). LS_STORE_ID / LS_PRODUCT_ID scope
+# license validation to Beacon's own store+product, so a license key from any
+# other Lemon Squeezy store can't unlock Beacon. Fill these from the LS
+# dashboard (Settings → Stores for the store ID; the product page URL / API for
+# the product ID). PADDLE_PRICE_ID is kept for the dormant Paddle claim path.
 [vars]
+# LS product IDs are globally unique, so matching the product alone scopes
+# validation to Beacon. LS_STORE_ID is an optional extra guard (leave blank).
+LS_STORE_ID = ""
+LS_PRODUCT_ID = "1241992"
 PADDLE_PRICE_ID = "pri_01kxvfwbt3n2www7ahy6ep68fp"
 
 [[kv_namespaces]]

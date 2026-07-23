@@ -2,17 +2,22 @@
  * Beacon license server — Cloudflare Worker.
  *
  * Endpoints:
- *   POST /claim    {transactionId}  -> verifies the Paddle transaction and
- *                                      mints (or re-returns) a license key
- *   POST /validate {key}            -> checks the key's subscription is active
+ *   POST /validate {key}            -> validates a Lemon Squeezy license key and
+ *                                      confirms it belongs to Beacon's store.
+ *   POST /claim    {transactionId}  -> [DORMANT] Paddle mint path, kept so we
+ *                                      can flip back to Paddle once approved.
  *
- * The Paddle API key lives in the PADDLE_API_KEY secret (wrangler secret put),
- * never in this repo or the app. KV layout:
- *   license:<KEY>          -> {subscriptionId, customerId, email, createdAt}
- *   txn:<TRANSACTION_ID>   -> <KEY>            (idempotent re-claims)
- *   status:<KEY>           -> {valid, expiresAt} (24h cache of Paddle status)
+ * Lemon Squeezy generates and delivers the license key itself (on the post-
+ * purchase screen and receipt email), so there's no minting to do here — the
+ * app just pastes the key and we validate it. Validation is keyless (LS's
+ * validate endpoint is authenticated by the key), but we MUST confirm the key
+ * came from OUR store/product, because LS's endpoint validates any key from any
+ * store. KV layout:
+ *   status:<KEY>           -> {valid, expiresAt} (24h cache of LS status)
+ *   (Paddle-era keys) license:<KEY>, txn:<ID>    (unused going forward)
  */
 
+const LS_API = "https://api.lemonsqueezy.com/v1/licenses/validate";
 const PADDLE_API = "https://api.paddle.com";
 // Unambiguous alphabet: no 0/O/1/I/L.
 const KEY_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
@@ -122,31 +127,50 @@ async function subscriptionStatus(env, record) {
 
 async function handleValidate(request, env) {
   const { key } = await request.json().catch(() => ({}));
-  if (!key || !/^BEACON(-[23456789A-HJKMNP-Z]{5}){3}$/.test(key.trim())) {
+  // LS keys are lowercase UUIDs; the app uppercases before sending, so undo it.
+  const normalized = (key || "").trim().toLowerCase();
+  // Loose sanity check (UUID-ish); the real check is LS + store match below.
+  if (!/^[a-f0-9-]{16,64}$/.test(normalized)) {
     return json({ valid: false, error: "malformed key" }, 400);
   }
-  const normalized = key.trim().toUpperCase();
 
-  const recordRaw = await env.LICENSES.get(`license:${normalized}`);
-  if (!recordRaw) {
-    return json({ valid: false, error: "unknown key" }, 404);
-  }
-
-  // Serve a cached verdict for a day so app launches don't hammer Paddle.
+  // Serve a cached verdict for a day so app launches don't hammer LS.
   const cached = await env.LICENSES.get(`status:${normalized}`, "json");
   if (cached) {
     return json(cached);
   }
 
-  const record = JSON.parse(recordRaw);
-  let verdict;
+  let ls;
   try {
-    verdict = await subscriptionStatus(env, record);
+    const res = await fetch(LS_API, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ license_key: normalized }),
+    });
+    ls = await res.json();
   } catch {
-    // Paddle briefly unreachable: fail open for known keys. The 24h cache
-    // and the app's own offline grace keep abuse uninteresting.
-    verdict = { valid: true, expiresAt: null, degraded: true };
+    // LS briefly unreachable and no cached verdict: fail closed but DON'T cache
+    // it. The app keeps its prior state (background revalidation ignores
+    // failures) and its 14-day offline grace covers transient outages.
+    return json({ valid: false, error: "validator unreachable", degraded: true }, 503);
   }
+
+  const lk = ls.license_key || {};
+  const meta = ls.meta || {};
+  // Product match is the primary guard (LS product IDs are globally unique).
+  // Store match is an optional extra check, enforced only if LS_STORE_ID is set.
+  const productOK = String(meta.product_id) === String(env.LS_PRODUCT_ID);
+  const storeOK =
+    !env.LS_STORE_ID || String(meta.store_id) === String(env.LS_STORE_ID);
+  // `inactive` = purchased but not yet activated on a device — still a paid,
+  // legitimate key. `expired`/`disabled` = lapsed subscription or revoked.
+  const statusOK = lk.status === "active" || lk.status === "inactive";
+  const valid = ls.valid === true && statusOK && storeOK && productOK;
+
+  const verdict = { valid, expiresAt: lk.expires_at || null };
   await env.LICENSES.put(`status:${normalized}`, JSON.stringify(verdict), {
     expirationTtl: 60 * 60 * 24,
   });

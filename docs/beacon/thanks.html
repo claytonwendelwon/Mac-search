@@ -29,9 +29,8 @@
 <body>
   <div class="thanks-wrap">
     <h1>Thanks for buying Beacon!</h1>
-    <p id="status">Generating your license key…</p>
-    <div class="license-box" id="license" hidden></div>
-    <button class="copy-btn" id="copy" hidden>Copy key</button>
+    <p>Your license key is on your purchase confirmation and in your
+      receipt email (subject “Your Beacon license key”).</p>
     <p style="margin-top: 26px">
       <a class="copy-btn" style="text-decoration:none"
          href="https://github.com/claytonwendelwon/Mac-search/releases/latest">
@@ -39,56 +38,11 @@
       </a>
     </p>
     <p class="hint">
-      Install Beacon, then paste your key: right-click the menu-bar icon →
-      <strong>Enter License…</strong>. Save the key somewhere safe — this page
-      shows it again if you revisit it from your receipt link, and
-      <a href="mailto:support@beaconmac.com">support</a> can always recover it
-      from your purchase email.
+      Install Beacon, then activate: right-click the menu-bar icon →
+      <strong>Enter License…</strong> and paste your key. Keep the key somewhere
+      safe — <a href="mailto:support@beaconmac.com">support</a> can always
+      recover it from your purchase email.
     </p>
   </div>
-  <script>
-    const LICENSE_API = "https://license.beaconmac.com";
-    const params = new URLSearchParams(location.search);
-    const txn = params.get("_ptxn") || params.get("txn");
-    const statusEl = document.getElementById("status");
-    const licenseEl = document.getElementById("license");
-    const copyBtn = document.getElementById("copy");
-
-    async function claim() {
-      if (!txn) {
-        statusEl.textContent =
-          "Missing transaction reference. Open this page from the link on " +
-          "your Paddle receipt, or contact support.";
-        statusEl.classList.add("error");
-        return;
-      }
-      try {
-        const res = await fetch(LICENSE_API + "/claim", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transactionId: txn }),
-        });
-        const body = await res.json();
-        if (!res.ok || !body.key) {
-          throw new Error(body.error || "claim failed");
-        }
-        statusEl.textContent = "Here's your license key:";
-        licenseEl.textContent = body.key;
-        licenseEl.hidden = false;
-        copyBtn.hidden = false;
-      } catch (err) {
-        statusEl.textContent =
-          "Couldn't fetch your key (" + err.message + "). Your payment is " +
-          "safe — refresh this page in a minute or contact support.";
-        statusEl.classList.add("error");
-      }
-    }
-    copyBtn.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(licenseEl.textContent);
-      copyBtn.textContent = "Copied ✓";
-      setTimeout(() => (copyBtn.textContent = "Copy key"), 1500);
-    });
-    claim();
-  </script>
 </body>
 </html>
