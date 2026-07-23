@@ -975,9 +975,6 @@ final class SearchEngine: ObservableObject {
         } else {
             page = PageWindow.slice(refined, limit: pageLimit)
         }
-        if selectedType.usesFileIndex, selectedType != .all {
-            Log.write("publishPage: type=\(selectedType) in=\(rows.count) scoped=\(scoped.count) refined=\(refined.count) visible=\(page.rows.count) hasMore=\(page.hasMore)")
-        }
         let visibleRows = displayRows(page.rows)
         canLoadMore = page.hasMore
         if results != visibleRows {
@@ -1619,7 +1616,6 @@ final class SearchEngine: ObservableObject {
             pathPrefixes: scope.pathPrefixes,
             excludedTrees: scope.excludedTrees
         )
-        Log.write("indexedBrowse: start type=\(type) trees=\(scope.trees) exts=\(scope.extensions.count) prefixes=\(scope.pathPrefixes) predicate=\(nameQuery.predicate?.predicateFormat.prefix(300) ?? "nil")")
         nameQuery.start()
         gatherFreshBrowse(type: type, token: token)
     }
@@ -2822,9 +2818,6 @@ final class SearchEngine: ObservableObject {
         }
         pendingIndexPublish = work
         let immediate = note.name == .NSMetadataQueryDidFinishGathering
-        if immediate {
-            Log.write("queryUpdated: FINISHED gathering \(query === nameQuery ? "name" : "content") resultCount=\(query.resultCount) type=\(selectedType)")
-        }
         let elapsed = Date().timeIntervalSince(lastIndexPublishAt)
         let delay = immediate ? 0 : max(0.04, 0.12 - elapsed)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
@@ -2955,7 +2948,6 @@ final class SearchEngine: ObservableObject {
                    ranked.count > self.pageLimit {
                     self.indexedBrowsePaused = true
                 }
-                Log.write("publishIndex: type=\(type) candidates=\(candidates.count) ranked=\(ranked.count) visible=\(self.results.count) browsing=\(browsing) paused=\(self.indexedBrowsePaused) canLoadMore=\(self.canLoadMore)")
                 if bothDone || !ranked.isEmpty { self.isSearching = false }
             }
         }
