@@ -504,7 +504,10 @@
     document.querySelectorAll("[data-buy]").forEach(function (el) {
       el.addEventListener("click", function (e) {
         e.preventDefault();
-        window.open(BEACON_CHECKOUT_URL, "_blank", "noopener");
+        e.stopImmediatePropagation();
+        // Same-tab redirect: reliable on the first click (a new-tab window.open
+        // gets treated as a popup and can swallow the first click).
+        window.location.href = BEACON_CHECKOUT_URL;
       });
     });
   </script>
