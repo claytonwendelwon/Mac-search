@@ -1,5 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Beacon</title>
         <link>https://claytonwendelwon.github.io/Mac-search/appcast.xml</link>
@@ -8,5 +8,15 @@
         <!-- Items are appended by scripts/release.sh via generate_appcast.
              The first entry appears with the first release cut after Sparkle
              integration (1.0.7+). -->
+        <item>
+            <title>1.0.8</title>
+            <pubDate>Fri, 24 Jul 2026 12:11:55 -0400</pubDate>
+            <link>https://beaconmac.com/</link>
+            <sparkle:version>20</sparkle:version>
+            <sparkle:shortVersionString>1.0.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/claytonwendelwon/Mac-search/releases/download/v1.0.8/Beacon-1.0.8.dmg" length="3372827" type="application/octet-stream" sparkle:edSignature="ynUfloDeh6qVPJ/SPal6pz6h6qUnyck9BNDCGDSXiQbCEE4TZWIQQV02vztHY7VxRlHEZzkn3q2i8+J9TqsCDA=="/>
+        </item>
     </channel>
 </rss>
