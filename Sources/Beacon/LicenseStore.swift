@@ -7,12 +7,18 @@ import Foundation
 ///
 /// Validation results are cached; a licensed Mac that goes offline stays
 /// licensed for a 14-day grace window from its last successful check.
-final class LicenseStore {
+final class LicenseStore: ObservableObject {
     static let shared = LicenseStore()
 
     /// License Worker endpoint (Cloudflare Worker on the beaconmac.com zone).
     private static let endpoint = URL(
         string: "https://license.beaconmac.com/validate"
+    )!
+
+    /// Lemon Squeezy checkout (also starts the 7-day free trial). Same URL the
+    /// website's Buy buttons use.
+    static let checkoutURL = URL(
+        string: "https://beaconmac.lemonsqueezy.com/checkout/buy/636f0d26-1b9b-4ca4-8434-4476b0f132fe"
     )!
 
     enum Status: Equatable {
@@ -22,6 +28,15 @@ final class LicenseStore {
         case grace(daysLeft: Int)
         /// The subscription lapsed or the key stopped validating.
         case lapsed
+
+        /// Whether the app should be usable. Grace keeps a previously-valid
+        /// license working through brief offline spells.
+        var grantsAccess: Bool {
+            switch self {
+            case .licensed, .grace: return true
+            case .unlicensed, .lapsed: return false
+            }
+        }
     }
 
     private let defaults = UserDefaults.standard
@@ -33,9 +48,19 @@ final class LicenseStore {
     /// Re-validate in the background at most every 3 days.
     private let revalidateInterval: TimeInterval = 3 * 86_400
 
+    /// Published mirror of `status` so SwiftUI can gate the UI. Recomputed on
+    /// activate / revalidate / remove and via `refresh()` (e.g. on panel show,
+    /// which also catches a grace window that has since aged into lapsed).
+    @Published private(set) var statusSnapshot: Status = .unlicensed
+
+    private init() { statusSnapshot = status }
+
     var licenseKey: String? { defaults.string(forKey: keyDefault) }
 
     var status: Status {
+        // Developer bypass so local dev builds aren't gated. Never set on a
+        // shipped install: `defaults write com.beacon.search beacon.dev.bypass -bool YES`.
+        if defaults.bool(forKey: "beacon.dev.bypass") { return .licensed }
         guard licenseKey != nil else { return .unlicensed }
         let lastValid = defaults.bool(forKey: validDefault)
         guard let checkedAt = defaults.object(forKey: checkedAtDefault) as? Date else {
@@ -50,6 +75,16 @@ final class LicenseStore {
         return .lapsed
     }
 
+    /// Recompute and publish the current status (cheap; reads UserDefaults).
+    func refresh() {
+        let snapshot = status
+        if Thread.isMainThread {
+            statusSnapshot = snapshot
+        } else {
+            DispatchQueue.main.async { self.statusSnapshot = snapshot }
+        }
+    }
+
     /// Validate and store a key the user just entered.
     func activate(key: String, completion: @escaping (Result<Void, Error>) -> Void) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -61,6 +96,7 @@ final class LicenseStore {
                     self.defaults.set(trimmed, forKey: self.keyDefault)
                     self.defaults.set(Date(), forKey: self.checkedAtDefault)
                     self.defaults.set(true, forKey: self.validDefault)
+                    self.refresh()
                     completion(.success(()))
                 case .success:
                     completion(.failure(LicenseError.invalidKey))
@@ -85,6 +121,7 @@ final class LicenseStore {
                 if case .success(let valid) = result {
                     self.defaults.set(Date(), forKey: self.checkedAtDefault)
                     self.defaults.set(valid, forKey: self.validDefault)
+                    self.refresh()
                     Log.write("License revalidated: valid=\(valid)")
                 }
                 // Network errors: leave the stored verdict alone (grace).
@@ -96,6 +133,7 @@ final class LicenseStore {
         defaults.removeObject(forKey: keyDefault)
         defaults.removeObject(forKey: checkedAtDefault)
         defaults.removeObject(forKey: validDefault)
+        refresh()
     }
 
     enum LicenseError: LocalizedError {

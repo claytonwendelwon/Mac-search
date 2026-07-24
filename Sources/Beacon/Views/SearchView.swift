@@ -5,6 +5,7 @@ struct SearchView: View {
     @ObservedObject var engine: SearchEngine
     @ObservedObject private var filterLayout = FilterLayoutStore.shared
     @ObservedObject private var refinementLayout = RefinementLayoutStore.shared
+    @ObservedObject private var license = LicenseStore.shared
     let onClose: () -> Void
     let onEditingChanged: (Bool) -> Void
     let onRefinementSidebarChanged: (Bool) -> Void
@@ -122,6 +123,10 @@ struct SearchView: View {
         .overlay {
             if newFolderParent != nil { newFolderOverlay }
         }
+        .overlay {
+            if !license.statusSnapshot.grantsAccess { licenseLockOverlay }
+        }
+        .onAppear { license.refresh() }
         .onChange(of: engine.selectedType) { _ in
             ThumbnailStore.shared.cancelAll()
             FaviconStore.shared.cancelAll()
@@ -2507,6 +2512,50 @@ struct SearchView: View {
         }
         .onExitCommand { newFolderParent = nil }
         .onAppear { newFolderFieldFocused = true }
+    }
+
+    /// Full-panel cover shown when the license is missing or lapsed — the gate
+    /// that makes the subscription real. A valid key (or an active LS trial)
+    /// dismisses it automatically via the published status.
+    private var licenseLockOverlay: some View {
+        let lapsed = license.statusSnapshot == .lapsed
+        return ZStack {
+            Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
+            VStack(spacing: 16) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text(lapsed ? "Your Beacon subscription has ended"
+                            : "Start your 7-day free trial")
+                    .font(.system(size: 20, weight: .semibold))
+                Text(lapsed
+                     ? "Renew to keep searching your Mac with Beacon."
+                     : "Try every feature free for 7 days. $15/year after that — cancel anytime.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+                HStack(spacing: 12) {
+                    Button {
+                        NSWorkspace.shared.open(LicenseStore.checkoutURL)
+                    } label: {
+                        Text(lapsed ? "Renew — $15/year" : "Start free trial")
+                            .frame(minWidth: 130)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    Button {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("BeaconEnterLicense"), object: nil)
+                    } label: {
+                        Text("Enter License…").frame(minWidth: 110)
+                    }
+                    .controlSize(.large)
+                }
+            }
+            .padding(40)
+        }
     }
 
 }

@@ -37,6 +37,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Background license re-check (no-op unless a key is stored and the
         // last check is >3 days old; failures just consume the grace window).
         LicenseStore.shared.revalidateIfNeeded()
+        // The in-panel lock's "Enter License…" button routes here.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(promptForLicense),
+            name: Notification.Name("BeaconEnterLicense"), object: nil)
         enableLaunchAtLoginOnce()
         // Touch the Messages DB once so macOS registers Beacon in the Full Disk
         // Access list (users can then just flip the toggle, no manual add).
@@ -119,10 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Enter your Beacon license key"
-        alert.informativeText = "Your key is on the receipt page from your "
-            + "purchase (it looks like BEACON-XXXXX-XXXXX-XXXXX)."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
-        field.placeholderString = "BEACON-…"
+        alert.informativeText = "Your key is on your purchase confirmation and "
+            + "in your receipt email from Lemon Squeezy."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.placeholderString = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
         alert.accessoryView = field
         alert.addButton(withTitle: "Activate")
         alert.addButton(withTitle: "Cancel")
@@ -247,6 +251,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let panel else { return }
         // Re-run the active query so the reopened panel is never stale.
         engine.refreshForPanelShow()
+        // Refresh the license gate (catches a grace window that has since aged
+        // into lapsed, and reflects a just-completed background revalidation).
+        LicenseStore.shared.refresh()
         panel.positionOnActiveScreen()
         // Pull the app forward (even from another app / full-screen space) and
         // make the panel key so the search field can show a blinking caret.
